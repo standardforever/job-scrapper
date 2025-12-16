@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo-data:/data/db
+      - ./mongod.conf.orig:/etc/mongod.conf.orig
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: website_live
+      MONGO_INITDB_ROOT_PASSWORD: 4lLIk8pdTNM41WNI
+    networks:
+      - click_buy_network
+    restart: always
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      # The hostname or IP address of the MongoDB service (use the service name defined in the compose file)
+      ME_CONFIG_MONGODB_SERVER: mongo
+
+      # Admin username and password as set in the MongoDB container
+      ME_CONFIG_MONGODB_ADMINUSERNAME: website_live
+      ME_CONFIG_MONGODB_ADMINPASSWORD: 4lLIk8pdTNM41WNI
+
+      # Connection URL including credentials and the MongoDB service name
+      ME_CONFIG_MONGODB_URL: "mongodb://website_live:4lLIk8pdTNM41WNI@mongo:27017"
+
+      # Basic authentication username and password for accessing Mongo Express web interface
+      ME_CONFIG_BASICAUTH_USERNAME: martine@gmail.com
+      ME_CONFIG_BASICAUTH_PASSWORD: changeme
+
+      # Theme for the code editor in Mongo Express (default theme)
+      ME_CONFIG_OPTIONS_EDITORTHEME: default
+
+      # Base URL for the Mongo Express application (useful for reverse proxy setup)
+      ME_CONFIG_SITE_BASEURL: "/db"
+
+      # Secret keys for signing cookies and managing sessions (should be set to strong, random values)
+      ME_CONFIG_SITE_COOKIESECRET: "cookiesecret"
+      ME_CONFIG_SITE_SESSIONSECRET: "sessionsecret"
+
+      # Enable or disable SSL (set to false if not using SSL)
+      ME_CONFIG_SITE_SSL_ENABLED: "false"
+
+      # Enable admin access in Mongo Express (set to true if you want to perform admin tasks)
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+    depends_on:
+      - mongo
+    networks:
+      - click_buy_network
+    restart: always
+
+# networks:
+#   click_buy_network:
+#     driver: bridge
+
+# networks:
+#   click_buy_network:
+#     external: true
+
+networks:
+  click_buy_network:
+    external: true

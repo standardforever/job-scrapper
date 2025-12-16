@@ -1,0 +1,116 @@
+[
+  {
+    "page_category": "single_job_posting",
+    "next_action": "scrape_job",
+    "confidence": 1.0,
+    "reasoning": "The webpage contains full job details including description, requirements, responsibilities, salary, and application instructions for the Breakfast Club Supervisory Assistant position.",
+    "job_details": {
+      "title": "Breakfast Club Supervisory Assistant",
+      "job_url": "https://accordmat.org/vacancy/breakfast-club-supervisory-assistant/",
+      "job_description": "You will support the smooth operation of our Breakfast Club, providing quality care and engaging activities for children. You will attend to pupils’ personal needs and provide general support in supervising and managing pupils, caring, and playing with groups of children, as well as providing a light breakfast. Enthusiasm and commitment is a key factor to provide a relaxed family feel breakfast environment. Horbury Primary Academy strives to create an environment where pupils enjoy learning and are given opportunity to stretch themselves both academically and also through a wide range of other extra-curricular activities.",
+      "job_description_word_count": 157,
+      "company_name": "Horbury Primary Academy",
+      "domain_name": "accordmat.org",
+      "contract_type": "Permanent",
+      "job_type": "Part-time",
+      "hours": "8 Hours Per Week, Monday to Friday 7.15am to 8.50am",
+      "location": "Horbury Primary Academy",
+      "location_postcode": null,
+      "remote_option": null,
+      "salary": "Grade 2, £4,423 per annum (actual salary)",
+      "benefits": "Membership to either the Teachers’ Pension Scheme or the Local Government Pension Scheme, Technology scheme via SmartTech, Access to an extensive discounts platform via Accord Rewards, Access to an industry leading Employee Assistance Programme, 24/7 access to an online GP or Advanced Nurse Practitioner through Corporate Paid Healthcare Cash Plans, Access to health and wellbeing services, Cycle to Work Scheme, Free annual flu jab, Free, on-site parking at every site, Trained Mental Health First Aiders in all our settings.",
+      "holiday": null,
+      "requirements": null,
+      "responsibilities": null,
+      "closing_date": "Tuesday 16 December 2025 at 9.00am",
+      "interview_date": "week commencing 15 December 2025",
+      "start_date": "As Soon As Possible",
+      "key_contact_name": null,
+      "key_contact_email": "hr@accordmat.org",
+      "key_contact_job_title": null
+    },
+    "application_methods": {
+      "form": {
+        "available": true,
+        "form_url": "https://accordmat.org/join-our-team/our-vacancies/",
+        "fields_visible": [
+          "Full Name",
+          "Email",
+          "Contact Number",
+          "Message",
+          "Attach CV"
+        ]
+      },
+      "email": {
+        "available": true,
+        "email_address": "hr@accordmat.org",
+        "instructions": "Completed application forms to be returned via email."
+      },
+      "additional_application_methods": {}
+    },
+    "company_name": "Horbury Primary Academy",
+    "page_title": "Breakfast Club Supervisory Assistant",
+    "url": "https://accordmat.org/vacancy/breakfast-club-supervisory-assistant/",
+    "is_known_ats": false,
+    "is_ats": false,
+    "is_external_application": false,
+    "ats_provider": null,
+    "detection_reason": "Internal application on company domain",
+    "_saved_at": "2025-12-16T01:46:06.052264",
+    "_file_index": 0
+  },
+  {
+    "page_category": "single_job_posting",
+    "next_action": "scrape_job",
+    "confidence": 1.0,
+    "reasoning": "The page contains a detailed job posting for a social worker position in London, meeting the criteria for classification.",
+    "job_details": {
+      "title": "Social Worker",
+      "job_url": "https://ajr.org.uk/latest-news/were-hiring/",
+      "job_description": "Come and join us! We are recruiting for a London-based social worker. The role is for three days a week but there is flexibility to spread the hours across four or five days.",
+      "job_description_word_count": 29,
+      "company_name": "AJR (Association of Jewish Refugees)",
+      "domain_name": "ajr.org.uk",
+      "contract_type": null,
+      "job_type": "part-time",
+      "hours": "Three days a week, flexible across four or five days",
+      "location": "London",
+      "location_postcode": null,
+      "remote_option": null,
+      "salary": null,
+      "benefits": null,
+      "holiday": null,
+      "requirements": null,
+      "responsibilities": null,
+      "closing_date": null,
+      "interview_date": null,
+      "start_date": null,
+      "key_contact_name": "Karen Markham",
+      "key_contact_email": "KARENMARKHAM@AJR.ORG.UK",
+      "key_contact_job_title": null
+    },
+    "application_methods": {
+      "form": {
+        "available": false,
+        "form_url": null,
+        "fields_visible": []
+      },
+      "email": {
+        "available": true,
+        "email_address": "KARENMARKHAM@AJR.ORG.UK",
+        "instructions": "For more information please email Karen Markham."
+      },
+      "additional_application_methods": {}
+    },
+    "company_name": "AJR",
+    "page_title": "We’re hiring!",
+    "url": "https://ajr.org.uk/latest-news/were-hiring/",
+    "is_known_ats": false,
+    "is_ats": false,
+    "is_external_application": false,
+    "ats_provider": null,
+    "detection_reason": "Internal application on company domain",
+    "_saved_at": "2025-12-16T01:46:55.257579",
+    "_file_index": 0
+  }
+]
