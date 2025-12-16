@@ -76,11 +76,11 @@ async def main_scrapper(domain: str):
             wait_seconds=3.0,
         )
 
-    # Initialize MongoDB
-    mongo_service = MongoDBService(
-        database_name=settings.DATABASE_NAME,
-        collection_name="jobs",
-    )
+    # # Initialize MongoDB
+    # mongo_service = MongoDBService(
+    #     database_name=settings.DATABASE_NAME,
+    #     collection_name="jobs",
+    # )
 
     async with ChromeCDPManager() as manager:
         page = manager.page
