@@ -23,11 +23,20 @@ class ChromeConfig:
     health_check_interval: float = 1.0
     health_check_timeout: float = 1.0
     chrome_paths: list[str] = field(default_factory=lambda: [
+         # Windows
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+
+        # Linux
+        "/usr/bin/google-chrome",
+        "/usr/bin/chromium-browser",
+
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/usr/bin/google-chrome",
         "/usr/bin/chromium-browser",
         "chrome",
         "chromium",
+
     ])
     chrome_args: list[str] = field(default_factory=lambda: [
         "--no-first-run",
