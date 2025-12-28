@@ -2,6 +2,10 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlparse
+from utils.logging import setup_logger
+
+# Configure logging
+logger = setup_logger(__name__)
 
 # =============================================================================
 # ATS Detector
@@ -134,9 +138,25 @@ class ATSDetector:
             domain = parsed.netloc.lower().replace("www.", "")
             parts = domain.split(".")
             if len(parts) >= 2:
-                return ".".join(parts[-2:])
-            return domain
-        except Exception:
+                base_domain = ".".join(parts[-2:])
+            else:
+                base_domain = domain
+            
+            logger.debug(
+                "Extracted base domain",
+                extra={
+                    "url": url,
+                    "full_domain": domain,
+                    "base_domain": base_domain,
+                    "domain_parts": parts,
+                },
+            )
+            return base_domain
+        except Exception as e:
+            logger.warning(
+                "Failed to extract base domain",
+                extra={"url": url, "error": str(e)},
+            )
             return ""
 
     @classmethod
@@ -144,24 +164,53 @@ class ATSDetector:
         """Extract full domain including subdomains."""
         try:
             parsed = urlparse(url)
-            return parsed.netloc.lower().replace("www.", "")
-        except Exception:
+            domain = parsed.netloc.lower().replace("www.", "")
+            logger.debug(
+                "Extracted full domain",
+                extra={"url": url, "domain": domain},
+            )
+            return domain
+        except Exception as e:
+            logger.warning(
+                "Failed to extract full domain",
+                extra={"url": url, "error": str(e)},
+            )
             return ""
 
     @classmethod
     def find_matching_ats(cls, url: str) -> Optional[str]:
         """Find matching ATS provider from known list."""
+        logger.debug(
+            "Searching for matching ATS provider",
+            extra={"url": url},
+        )
         base_domain = cls.extract_base_domain(url)
         full_domain = cls.extract_full_domain(url)
 
         for ats_domain in cls.KNOWN_ATS_DOMAINS:
             if base_domain == ats_domain:
+                logger.debug(
+                    "ATS match found via base domain",
+                    extra={"url": url, "ats_domain": ats_domain},
+                )
                 return ats_domain
             if full_domain.endswith(f".{ats_domain}"):
+                logger.debug(
+                    "ATS match found via subdomain",
+                    extra={"url": url, "ats_domain": ats_domain, "full_domain": full_domain},
+                )
                 return ats_domain
             if full_domain == ats_domain:
+                logger.debug(
+                    "ATS match found via full domain",
+                    extra={"url": url, "ats_domain": ats_domain},
+                )
                 return ats_domain
 
+        logger.debug(
+            "No matching ATS provider found",
+            extra={"url": url, "base_domain": base_domain, "full_domain": full_domain},
+        )
         return None
 
     @classmethod
@@ -169,7 +218,18 @@ class ATSDetector:
         """Check if two URLs belong to the same domain."""
         domain1 = cls.extract_base_domain(url1)
         domain2 = cls.extract_base_domain(url2)
-        return domain1 == domain2 and domain1 != ""
+        result = domain1 == domain2 and domain1 != ""
+        logger.debug(
+            "Domain comparison",
+            extra={
+                "url1": url1,
+                "url2": url2,
+                "domain1": domain1,
+                "domain2": domain2,
+                "is_same": result,
+            },
+        )
+        return result
 
     @classmethod
     def detect_ats(cls, job_url: str, company_domain: str) -> dict[str, Any]:
@@ -188,6 +248,11 @@ class ATSDetector:
         Returns:
             Dictionary with ATS detection results
         """
+        logger.info(
+            "Starting ATS detection",
+            extra={"job_url": job_url, "company_domain": company_domain},
+        )
+
         # Normalize company domain (handle both "openai.com" and "https://openai.com")
         if company_domain.startswith("http"):
             company_domain_clean = cls.extract_base_domain(company_domain)
@@ -197,11 +262,24 @@ class ATSDetector:
             if len(parts) >= 2:
                 company_domain_clean = ".".join(parts[-2:])
 
+        logger.debug(
+            "Company domain normalized",
+            extra={"original": company_domain, "normalized": company_domain_clean},
+        )
+
         job_domain = cls.extract_base_domain(job_url)
         job_full_domain = cls.extract_full_domain(job_url)
 
         # Check if domains match
         is_external = job_domain != company_domain_clean
+        logger.debug(
+            "Domain comparison for ATS detection",
+            extra={
+                "job_domain": job_domain,
+                "company_domain_clean": company_domain_clean,
+                "is_external": is_external,
+            },
+        )
 
         # Check if it's a known ATS
         known_ats_provider = cls.find_matching_ats(job_url)
@@ -231,7 +309,7 @@ class ATSDetector:
         else:
             reason = "Internal application on company domain"
 
-        return {
+        result = {
             "is_ats": is_ats,
             "is_external_application": is_external,
             "is_known_ats": is_known_ats,
@@ -239,7 +317,20 @@ class ATSDetector:
             "job_domain": job_domain,
             "company_domain": company_domain_clean,
             "detection_reason": reason,
-    }
+        }
+
+        logger.info(
+            "ATS detection completed",
+            extra={
+                "job_url": job_url,
+                "is_ats": is_ats,
+                "is_known_ats": is_known_ats,
+                "ats_provider": ats_provider,
+                "detection_reason": reason,
+            },
+        )
+
+        return result
 
     @classmethod
     def detect_ats_batch(cls, job_urls: list[str], company_domain: str) -> list[dict[str, Any]]:
@@ -253,7 +344,27 @@ class ATSDetector:
         Returns:
             List of detection results for each URL
         """
-        return [cls.detect_ats(url, company_domain) for url in job_urls]
+        logger.info(
+            "Starting batch ATS detection",
+            extra={"url_count": len(job_urls), "company_domain": company_domain},
+        )
+
+        results = [cls.detect_ats(url, company_domain) for url in job_urls]
+
+        ats_count = sum(1 for r in results if r["is_ats"])
+        known_ats_count = sum(1 for r in results if r["is_known_ats"])
+
+        logger.info(
+            "Batch ATS detection completed",
+            extra={
+                "total_urls": len(job_urls),
+                "ats_detected": ats_count,
+                "known_ats_count": known_ats_count,
+                "internal_count": len(job_urls) - ats_count,
+            },
+        )
+
+        return results
 
     @classmethod
     def filter_ats_jobs(cls, job_urls: list[str], company_domain: str) -> dict[str, list[str]]:
@@ -267,6 +378,11 @@ class ATSDetector:
         Returns:
             Dictionary with 'ats' and 'internal' URL lists
         """
+        logger.info(
+            "Starting ATS job filtering",
+            extra={"url_count": len(job_urls), "company_domain": company_domain},
+        )
+
         result = {
             "ats": [],
             "internal": [],
@@ -280,10 +396,33 @@ class ATSDetector:
             if detection["is_known_ats"]:
                 result["known_ats"].append(url)
                 result["ats"].append(url)
+                logger.debug(
+                    "URL categorized as known ATS",
+                    extra={"url": url, "ats_provider": detection["ats_provider"]},
+                )
             elif detection["is_external_application"]:
                 result["external_unknown"].append(url)
                 result["ats"].append(url)
+                logger.debug(
+                    "URL categorized as external unknown",
+                    extra={"url": url, "job_domain": detection["job_domain"]},
+                )
             else:
                 result["internal"].append(url)
+                logger.debug(
+                    "URL categorized as internal",
+                    extra={"url": url},
+                )
+
+        logger.info(
+            "ATS job filtering completed",
+            extra={
+                "total_urls": len(job_urls),
+                "ats_count": len(result["ats"]),
+                "internal_count": len(result["internal"]),
+                "known_ats_count": len(result["known_ats"]),
+                "external_unknown_count": len(result["external_unknown"]),
+            },
+        )
 
         return result

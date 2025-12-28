@@ -102,14 +102,176 @@ RESPONSE SCHEMA:
         "total_pages": <integer or null>,
         "total_jobs": <integer or null>,
         "current_page": <integer or null>
-    }},
-
-    "company_name": "<company name or null>",
-    "page_title": "<page title or null>"
+    }}
 }}
 
 """
     return prompt
+
+
+
+def get_job_extraction_prompt(text: str) -> str:
+    """
+    Generate a prompt for extracting structured job data from raw text.
+    
+    Args:
+        text: Raw text content from a job listing page
+        
+    Returns:
+        Formatted prompt string for LLM processing
+    """
+    return f"""Extract job listing data from the text below. Return ONLY valid JSON starting with {{ and ending with }}.
+
+RULES:
+1. Map to standard fields when present (use null if not found)
+2. ALL text content must be returned - nothing omitted except buttons/URLs
+
+SCHEMA:
+{{
+  "title": null,
+  "company_name": null,
+  "holiday": null,
+  "location": {{
+    "address": "full address",
+    "city": null,
+    "region": null,
+    "postcode": null,
+    "country": null
+  }},
+  "salary": {{
+    "min": null,
+    "max": null,
+    "currency": "GBP|USD|EUR|etc",
+    "period": "annually|monthly|weekly|hourly|daily",
+    "actual_salary": null,
+    "raw": "original salary text"
+  }},
+  "job_type": "full-time|part-time|null",
+  "contract_type": "permanent|temporary|contract|freelance|null",
+  "remote_option": "remote|hybrid|on-site|null",
+  "hours": {{
+    "weekly": null,
+    "daily": null,
+    "details": "raw hours text"
+  }},
+  "closing_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+  "interview_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+  "start_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+  "post_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+  "contact": {{"name": null, "email": null, "phone": null}},
+  "job_reference": null,
+  "description": "main job description text",
+  "responsibilities": [],
+  "requirements": [],
+  "benefits": [],
+  "company_info": null,
+  "how_to_apply": null,
+  "additional_sections": {{
+    "section_name": "full text content"
+  }},
+  "is_job_page": true,
+  "confidence_reason": "brief explanation",
+   "application_method": {{
+    "type": "email|online_form|external_link|post|phone|in_person|null",
+    "url": null,
+    "email": null,
+    "instructions": "how to apply text"
+  }}
+  
+}}
+
+FIELD MAPPING (use these, NOT additional_sections):
+- "Role Overview", "About the Role", "Job Description" → description
+- "Key Responsibilities", "Duties" → responsibilities
+- "Requirements", "Qualifications", "Skills", "Experience" → requirements  
+- "Benefits", "Perks", "What We Offer" → benefits
+- "About Us", "Company Overview", "Who We Are" → company_info
+- "How to Apply", "Application Process", "To Apply" → how_to_apply
+
+TEXT:
+{text}"""
+
+
+# def get_job_extraction_prompt(text: str) -> str:
+#     """
+#     Generate a prompt for extracting structured job data from raw text.
+    
+#     Args:
+#         text: Raw text content from a job listing page
+        
+#     Returns:
+#         Formatted prompt string for LLM processing
+#     """
+#     return f"""You are a job listing data extractor. Extract information from the provided text and return ONLY valid JSON with no additional text, explanations, or markdown code blocks.
+
+# Extract these fields (use null if not found):
+
+# {{
+#   "title": "job title",
+#   "company_name": "employer name",
+#   "contract_type": "permanent|temporary|fixed-term|contract|freelance|null",
+#   "job_type": "full-time|part-time|null",
+#   "hours": {{
+#     "weekly": null,
+#     "daily": null,
+#     "details": "raw hours text"
+#   }},
+#   "location": {{
+#     "address": "full address",
+#     "city": null,
+#     "region": null,
+#     "postcode": null,
+#     "country": null
+#   }},
+#   "remote_option": "remote|hybrid|on-site|null",
+#   "salary": {{
+#     "min": null,
+#     "max": null,
+#     "currency": "GBP|USD|EUR|etc",
+#     "period": "annually|monthly|weekly|hourly|daily",
+#     "actual_salary": null,
+#     "raw": "original salary text"
+#   }},
+#   "holiday": null,
+#   "dates": {{
+#     "closing_date": "ISO format or raw text",
+#     "interview_date": null,
+#     "start_date": null
+#   }},
+#   "contact": {{
+#     "name": null,
+#     "email": null,
+#     "phone": null,
+#     "job_title": null
+#   }},
+#   "page_category": "job_detail|not_job_detail",
+#   "reasoning": "brief explanation of why this is or isn't a job detail page",
+#   "metadata": {{
+#     "job_reference": null,
+#     "job_description": null,
+#     "responsibilities": [],
+#     "requirements": [],
+#     "benefits": [],
+#     "company_info": null,
+#     "application_notes": null,
+#     "additional_info": {{}}
+#   }}
+# }}
+
+# Rules:
+# - Return ONLY the JSON object
+# - Use null for missing fields, never empty strings
+# - Extract ALL job-relevant information into metadata
+# - Ignore navigation links, ads, footers, and page chrome
+# - Parse salary numbers as integers
+# - Preserve original text in "raw" or "details" fields when parsing structured data
+# - For metadata.additional_info, capture any other job-relevant key-value pairs not covered above
+# - Start directly with {{ and end with }}
+# - Return the result strictly using the schema below.
+# - NOTE: everything on the page most be return as part of a section key. All information is needed accroding to how it is started on the page
+
+# TEXT TO EXTRACT:
+# {text}"""
 
 
 
@@ -220,9 +382,123 @@ RESPONSE SCHEMA:
     }}
     
 
-Extract ALL available information from the detailed job posting. Ignore any job listings or "related jobs" sections. Use null for fields not found."""
+Extract ALL available information from the detailed job posting. Ignore any job listings or "related jobs" sections. Use null for fields not found.
+"""
 
     return prompt
+
+
+
+
+# def create_job_page_analysis_prompt_detail(url: str, text: str) -> str:
+#     """
+#     Creates the analysis prompt for scraping a single job detail page.
+#     Focused exclusively on extracting job details - ignores any job listings on the page.
+#     """
+    
+#     prompt = f"""Analyze this webpage and extract job details if a job posting's full details are visible.
+
+# URL: {url}
+
+# PAGE CONTENT:
+# {text}
+
+# ---
+
+# CLASSIFICATION RULES:
+
+# 1. **single_job_posting** - A job's FULL DETAILS are visible on this page
+#    - You can see: job description, requirements, responsibilities, salary, how to apply, etc.
+#    - The page may ALSO show a list of other jobs - IGNORE the listings
+#    - Focus ONLY on extracting the detailed job information
+#    - next_action: "scrape_job"
+
+# 2. **not_job_detail_page** - NO job details are visible
+#    - Page only shows job listings without any expanded details
+#    - Page requires navigation/clicking to see job details
+#    - Page is not job-related at all
+#    - next_action: "stop"
+
+# IMPORTANT:
+# - If the page shows BOTH a detailed job AND a list of other jobs, classify as "single_job_posting"
+# - Extract ONLY the job that has full details visible - ignore any job listings/sidebar jobs
+# - We want the rich detail content (description, requirements, etc.), not just titles and links
+
+# LOCATION FILTER:
+# - Only extract jobs with UK locations, remote positions, or unspecified locations
+# - If the detailed job explicitly states a non-UK location, classify as "not_job_detail_page"
+
+# ---
+
+# RESPONSE FORMAT:
+# - Return ONLY valid JSON
+# - Do NOT wrap in markdown code blocks (no ```json or ```)
+# - Do NOT include any text before or after the JSON
+# - Start directly with {{ and end with }}
+
+# RESPONSE SCHEMA:
+
+# {{
+#     "page_category": "single_job_posting" | "not_job_detail_page",
+#     "next_action": "scrape_job" | "stop",
+#     "confidence": <float 0.0-1.0>,
+#     "reasoning": "<brief explanation of classification decision>",
+    
+#     "job_details": {{
+#         "title": "<job title or null>",
+#         "job_url": "{url}",
+#         "job_description": "<full job description text or null>",
+#         "job_description_word_count": <integer word count or null>,
+        
+#         "company_name": "<employer/company name or null>",
+#         "domain_name": "<website main domain>",
+        
+#         "contract_type": "<permanent/temporary/fixed-term/contract/freelancer or null>",
+#         "job_type": "<full-time/part-time or null>",
+#         "hours": "<working hours info or null>",
+        
+#         "location": "<job location or null>",
+#         "location_postcode": "<postcode if mentioned or null>",
+#         "remote_option": "<remote/hybrid/on-site or null>",
+        
+#         "salary": "<salary info as stated or null>",
+#         "benefits": "<benefits listed or null>",
+#         "holiday": "<holiday/annual leave info or null>",
+        
+#         "requirements": "<qualifications/requirements or null>",
+#         "responsibilities": "<key responsibilities or null>",
+        
+#         "closing_date": "<application deadline or null>",
+#         "interview_date": "<interview date if mentioned or null>",
+#         "start_date": "<job start date or null>",
+        
+#         "key_contact_name": null,
+#         "key_contact_email": null,
+#         "key_contact_job_title": null
+#         }},
+        
+#     "application_methods": {{
+#         "form: {{
+#             "available": <boolean>,
+#             "form_url": "<url or 'current_page' or null>",
+#             "fields_visible": ["<field1>", "<field2>"]
+#         }},
+#         "email": {{
+#             "available": <boolean>,
+#             "email_address": "<email to send application or null>",
+#             "instructions": "<any specific instructions or null>"
+#         }},
+#         "additional_application_methods": {{}}
+#     }},
+#     "company_name": "<company name or null>",
+#     "page_title": "<page title or null>"
+    
+#     }}
+    
+
+# Extract ALL available information from the detailed job posting. Ignore any job listings or "related jobs" sections. Use null for fields not found."""
+
+#     return prompt
 
 
 

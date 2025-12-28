@@ -5,7 +5,12 @@ from service.brower_scraper_service import DOMContentExtractor
 from models.agent_output_models import PaginationCheck
 from browser_use import Agent, BrowserSession, ChatOpenAI
 from service.job_analyzer import JobPageAnalyzer, AnalysisPromptType
+from utils.logging import setup_logger
 from utils.text_processor import TextProcessor
+from urllib.parse import urlparse, urlunparse
+
+# Configure logging
+logger = setup_logger(__name__)
 
 # =============================================================================
 # Pagination Handlers
@@ -31,22 +36,48 @@ class PaginationHandler:
         self._llm = llm
         self._extractor = extractor
         self._config = config or PaginationConfig()
+        logger.debug(
+            "PaginationHandler initialized",
+            extra={
+                "max_clicks": self._config.max_clicks,
+                "wait_after_click": self._config.wait_after_click,
+                "content_wait": self._config.content_wait,
+            },
+        )
 
     async def _extract_content(self) -> str:
+        logger.debug(
+            "Starting content extraction",
+            extra={"wait_seconds": self._config.content_wait},
+        )
         content = await self._extractor.extract(wait_seconds=self._config.content_wait)
+        logger.debug(
+            "Content extraction completed",
+            extra={"content_length": len(content.structured_text)},
+        )
         return content.structured_text
 
     async def handle_pagination(self, base_url: str) -> list[str]:
-        print("\n🔄 Started Pagination Handler\n")
+        logger.info(
+            "Started Pagination Handler",
+            extra={"base_url": base_url},
+        )
         all_contents: list[str] = []
 
         content = await self._extract_content()
         all_contents.append(content)
-        print(f"📄 Scraped initial page: {len(content)} chars")
+        logger.info(
+            "Scraped initial page",
+            extra={"content_length": len(content), "page_number": 1},
+        )
 
         click_count = 0
 
         while click_count < self._config.max_clicks:
+            logger.debug(
+                "Creating pagination agent",
+                extra={"click_count": click_count, "max_clicks": self._config.max_clicks},
+            )
             agent = Agent(
                 browser=self._browser,
                 llm=self._llm,
@@ -64,19 +95,41 @@ class PaginationHandler:
 
             result = await agent.run(max_steps=5)
             click_count += 1
-            print(f"🖱️ Click #{click_count} completed")
+            logger.info(
+                "Pagination click completed",
+                extra={"click_count": click_count},
+            )
 
             structured = result.structured_output.model_dump() if result.structured_output else {}
-            print(f"📊 Output: {structured}")
+            logger.debug(
+                "Pagination agent output",
+                extra={"structured_output": structured},
+            )
 
             if not structured.get("has_pagination"):
+                logger.debug(
+                    "No more pagination found, breaking loop",
+                    extra={"click_count": click_count},
+                )
                 break
 
             content = await self._extract_content()
             all_contents.append(content)
-            print(f"📄 Scraped page #{click_count + 1}: {len(content)} chars")
+            logger.info(
+                "Scraped paginated page",
+                extra={
+                    "page_number": click_count + 1,
+                    "content_length": len(content),
+                },
+            )
 
-        print(f"\n✅ Total pages scraped: {len(all_contents)}\n")
+        logger.info(
+            "Pagination handling completed",
+            extra={
+                "total_pages_scraped": len(all_contents),
+                "base_url": base_url,
+            },
+        )
         return all_contents
 
     async def handle_load_more(
@@ -84,36 +137,73 @@ class PaginationHandler:
         base_url: str,
         button_text: Optional[str] = None,
     ) -> list[str]:
-        print("\n🔄 Started Load More Handler\n")
+        logger.info(
+            "Started Load More Handler",
+            extra={"base_url": base_url, "button_text": button_text},
+        )
 
         content = await self._extract_content()
         combined_text = content
-        print(f"📄 Scraped initial page: {len(combined_text)} chars")
+        logger.info(
+            "Scraped initial page for load more",
+            extra={"content_length": len(combined_text)},
+        )
 
         page = await self._browser.get_current_page()
         prompt = (
             f"Find the clickable element whose visible text most closely matches "
             f"'{button_text or 'Load More'}' and is used to load or show more job listings on this page."
         )
+        logger.debug(
+            "Load more button search prompt",
+            extra={"prompt": prompt},
+        )
 
         click_count = 0
 
         while click_count < self._config.max_clicks:
             click_count += 1
+            logger.debug(
+                "Searching for load more button",
+                extra={"click_count": click_count},
+            )
 
             button = await page.get_element_by_prompt(prompt, llm=self._llm)
             if not button:
+                logger.warning(
+                    "Load more button not found, stopping",
+                    extra={"click_count": click_count},
+                )
                 break
 
             await button.click("left")
+            logger.debug(
+                "Clicked load more button",
+                extra={"click_count": click_count},
+            )
             await asyncio.sleep(self._config.wait_after_click)
 
             new_content = await self._extract_content()
             combined_text = TextProcessor.append_non_overlapping(combined_text, new_content)
-            print(f"📄 Scraped after click #{click_count}: {len(new_content)} chars")
+            logger.info(
+                "Scraped content after load more click",
+                extra={
+                    "click_count": click_count,
+                    "new_content_length": len(new_content),
+                    "combined_length": len(combined_text),
+                },
+            )
 
-        print(f"\n✅ Total content length: {len(combined_text)}\n")
-        return TextProcessor.split_into_chunks(combined_text)
+        chunks = TextProcessor.split_into_chunks(combined_text)
+        logger.info(
+            "Load more handling completed",
+            extra={
+                "total_content_length": len(combined_text),
+                "chunks_count": len(chunks),
+                "base_url": base_url,
+            },
+        )
+        return chunks
 
 
 # =============================================================================
@@ -151,22 +241,56 @@ class JobScraper:
         self._analyzer = analyzer
         self._config = config or JobScraperConfig()
         self._pagination_handler = PaginationHandler(browser, llm, extractor)
+        logger.debug(
+            "JobScraper initialized",
+            extra={
+                "max_navigation": self._config.max_navigation,
+                "page_load_wait": self._config.page_load_wait,
+                "llm_model": self._config.llm_model,
+            },
+        )
 
     async def _get_page(self):
         return await self._browser.get_current_page()
 
     async def _navigate(self, url: str) -> None:
+        logger.debug(
+            "Navigating to URL",
+            extra={"url": url},
+        )
         page = await self._get_page()
         await page.goto(url)
         await asyncio.sleep(self._config.page_load_wait)
+        logger.debug(
+            "Navigation completed",
+            extra={"url": url, "wait_time": self._config.page_load_wait},
+        )
 
     async def _extract_and_analyze(self, url: str) -> dict[str, Any]:
+        logger.debug(
+            "Starting extract and analyze",
+            extra={"url": url},
+        )
         content = await self._extractor.extract()
         result = await self._analyzer.analyze(url, content.structured_text)
-        return result.response if result.success else {}
+        if result.success:
+            logger.debug(
+                "Extract and analyze succeeded",
+                extra={"url": url},
+            )
+            return result.response
+        else:
+            logger.warning(
+                "Extract and analyze failed",
+                extra={"url": url, "error": result.error},
+            )
+            return {}
 
     async def scrape_jobs(self, url: str) -> list[JobEntry]:
-        print(f"🚀 Starting job scrape for: {url}")
+        logger.info(
+            "Starting job scrape",
+            extra={"url": url},
+        )
 
         await self._navigate(url)
         nav_count = 0
@@ -174,24 +298,46 @@ class JobScraper:
 
         while True:
             content = await self._extractor.extract()
+            logger.debug(
+                "Content extracted for analysis",
+                extra={"url": url, "content_length": len(content.structured_text)},
+            )
             analysis = await self._analyzer.analyze(url, content.structured_text, json_resonse=True)
 
             if not analysis.success:
-                print(f"❌ Analysis failed: {analysis.error}")
+                logger.error(
+                    "Analysis failed",
+                    extra={"url": url, "error": analysis.error},
+                )
                 break
 
             result = analysis.response
-            print(f"📊 Analysis result: {result}")
-
             page_category = result.get("page_category", "")
+            logger.debug(
+                "Analysis result",
+                extra={
+                    "url": url,
+                    "page_category": page_category,
+                    "next_action": result.get("next_action"),
+                },
+            )
 
             if page_category == "not_job_related":
-                print(f"⏭️ Page not job related: {url}")
+                logger.info(
+                    "Page not job related",
+                    extra={"url": url, "page_category": page_category},
+                )
                 return all_jobs
 
             if result.get("next_action") == "navigate":
                 if nav_count >= self._config.max_navigation:
-                    print(f"⏭️ Max navigation reached ({self._config.max_navigation})")
+                    logger.warning(
+                        "Max navigation reached",
+                        extra={
+                            "nav_count": nav_count,
+                            "max_navigation": self._config.max_navigation,
+                        },
+                    )
                     return all_jobs
 
                 nav_target = result.get("next_action_target", {})
@@ -202,7 +348,14 @@ class JobScraper:
                     nav_count += 1
                     url = nav_url
                     await self._navigate(url)
-                    print(f"🔄 Navigated to: {url} ({nav_count}/{self._config.max_navigation})")
+                    logger.info(
+                        "Navigated to new URL",
+                        extra={
+                            "url": url,
+                            "nav_count": nav_count,
+                            "max_navigation": self._config.max_navigation,
+                        },
+                    )
                     continue
 
                 link_text = nav_target.get("link_text", "")
@@ -213,13 +366,24 @@ class JobScraper:
                         f"Find the clickable element whose visible text most closely matches "
                         f"'{link_text}' and is used to navigate to the job listings page."
                     )
+                    logger.debug(
+                        "Searching for navigation element",
+                        extra={"link_text": link_text, "prompt": prompt},
+                    )
                     button = await page.get_element_by_prompt(prompt, llm=self._llm)
                     if button:
                         await button.click("left")
                         await asyncio.sleep(self._config.page_load_wait)
-                        print(f"🖱️ Clicked navigation element: {link_text}")
+                        logger.info(
+                            "Clicked navigation element",
+                            extra={"link_text": link_text},
+                        )
                         continue
 
+                logger.debug(
+                    "No valid navigation target found",
+                    extra={"nav_target": nav_target},
+                )
                 return all_jobs
 
             if page_category == "jobs_listed":
@@ -229,11 +393,25 @@ class JobScraper:
                         title=job.get("title", ""),
                         url=job.get("job_url", ""),
                     ))
-                print(f"✅ Found {len(jobs_on_page)} jobs on page")
+                logger.info(
+                    "Found jobs on page",
+                    extra={"job_count": len(jobs_on_page), "url": url},
+                )
 
                 pagination = result.get("pagination", {})
+                logger.debug(
+                    "Pagination info",
+                    extra={
+                        "is_paginated_page": pagination.get("is_paginated_page"),
+                        "has_more_pages": pagination.get("has_more_pages"),
+                    },
+                )
 
                 if not pagination.get("is_paginated_page") and pagination.get("has_more_pages"):
+                    logger.info(
+                        "Handling load more pagination",
+                        extra={"url": url},
+                    )
                     contents = await self._pagination_handler.handle_load_more(url)
                     for chunk in contents:
                         chunk_analysis = await self._analyzer.analyze(url, chunk)
@@ -243,9 +421,17 @@ class JobScraper:
                                     title=job.get("title", ""),
                                     url=job.get("job_url", ""),
                                 ))
+                    logger.info(
+                        "Load more pagination completed",
+                        extra={"total_jobs": len(all_jobs)},
+                    )
                     return all_jobs
 
                 if pagination.get("is_paginated_page"):
+                    logger.info(
+                        "Handling standard pagination",
+                        extra={"url": url},
+                    )
                     contents = await self._pagination_handler.handle_pagination(url)
                     for page_content in contents[1:]:
                         page_analysis = await self._analyzer.analyze(url, page_content)
@@ -255,22 +441,49 @@ class JobScraper:
                                     title=job.get("title", ""),
                                     url=job.get("job_url", ""),
                                 ))
+                    logger.info(
+                        "Standard pagination completed",
+                        extra={"total_jobs": len(all_jobs)},
+                    )
                     return all_jobs
 
                 return all_jobs
 
+            logger.debug(
+                "Breaking main loop - unhandled page category",
+                extra={"page_category": page_category},
+            )
             break
 
+        logger.info(
+            "Job scrape completed",
+            extra={"url": url, "total_jobs": len(all_jobs)},
+        )
         return all_jobs
 
     async def scrape_job_details(self, jobs: list[JobEntry]) -> list[JobEntry]:
-        print(f"\n📝 Scraping details for {len(jobs)} jobs\n")
+        logger.info(
+            "Starting job details scrape",
+            extra={"job_count": len(jobs)},
+        )
 
         for i, job in enumerate(jobs):
             if not job.url:
+                logger.debug(
+                    "Skipping job without URL",
+                    extra={"job_index": i, "job_title": job.title},
+                )
                 continue
 
-            print(f"  [{i + 1}/{len(jobs)}] {job.title}")
+            logger.debug(
+                "Scraping job details",
+                extra={
+                    "job_index": i + 1,
+                    "total_jobs": len(jobs),
+                    "job_title": job.title,
+                    "job_url": job.url,
+                },
+            )
 
             try:
                 await self._navigate(job.url)
@@ -281,27 +494,83 @@ class JobScraper:
                 )
                 if analysis.success:
                     job.details = analysis.response
+                    logger.debug(
+                        "Job details scraped successfully",
+                        extra={"job_url": job.url},
+                    )
+                else:
+                    logger.warning(
+                        "Job details analysis failed",
+                        extra={"job_url": job.url, "error": analysis.error},
+                    )
             except Exception as e:
-                print(f"    ❌ Error: {e}")
+                logger.error(
+                    "Error scraping job details",
+                    extra={"job_url": job.url, "error": str(e)},
+                    exc_info=True,
+                )
 
+        logger.info(
+            "Job details scrape completed",
+            extra={"job_count": len(jobs)},
+        )
         return jobs
 
 
 
 
 
-
-
-
-
-
-
-from urllib.parse import urlparse, urlunparse
-
 class URLTracker:
     def __init__(self):
         self._visited: set[str] = set()
         self._scraped_jobs: set[str] = set()
+        logger.debug("URLTracker initialized")
+
+    @staticmethod
+    def extract_domain(url: str) -> str:
+        """
+        Extract domain/host from URL.
+        
+        Examples:
+            https://www.example.com/Jobs/  →  www.example.com
+            example.com/careers            →  example.com
+            careers.example.com            →  careers.example.com
+            https://jobs.google.com/page   →  jobs.google.com
+        """
+        if not url:
+            logger.warning("Empty URL provided")
+            return ""
+        
+        url = url.strip()
+        
+        # Add scheme if missing (required for urlparse to work correctly)
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+        
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            logger.debug(
+                "Domain extracted",
+                extra={"original_url": url, "domain": domain},
+            )
+            return domain
+            
+        except Exception as e:
+            logger.error(
+                "Failed to extract domain",
+                extra={"url": url, "error": str(e)},
+            )
+            return ""
+
+
+    
+    @staticmethod
+    def normalize_full_path(url, domain):
+        if url.startswith("/") and domain:
+            return domain.rstrip("/") + url
+        return url
 
     @staticmethod
     def normalize_url(url: str) -> str:
@@ -317,30 +586,69 @@ class URLTracker:
         return normalized
 
     def mark_visited(self, url: str) -> None:
-        self._visited.add(self.normalize_url(url))
+        normalized = self.normalize_url(url)
+        self._visited.add(normalized)
+        logger.debug(
+            "URL marked as visited",
+            extra={"url": url, "normalized_url": normalized},
+        )
 
     def mark_job_scraped(self, url: str) -> None:
-        self._scraped_jobs.add(self.normalize_url(url))
+        normalized = self.normalize_url(url)
+        self._scraped_jobs.add(normalized)
+        logger.debug(
+            "Job URL marked as scraped",
+            extra={"url": url, "normalized_url": normalized},
+        )
 
     def is_visited(self, url: str) -> bool:
-        return self.normalize_url(url) in self._visited
+        result = self.normalize_url(url) in self._visited
+        logger.debug(
+            "Checking if URL is visited",
+            extra={"url": url, "is_visited": result},
+        )
+        return result
 
     def is_job_scraped(self, url: str) -> bool:
-        return self.normalize_url(url) in self._scraped_jobs
+        result = self.normalize_url(url) in self._scraped_jobs
+        logger.debug(
+            "Checking if job URL is scraped",
+            extra={"url": url, "is_scraped": result},
+        )
+        return result
 
     def should_skip(self, url: str) -> bool:
         normalized = self.normalize_url(url)
-        return normalized in self._visited or normalized in self._scraped_jobs
+        result = normalized in self._visited or normalized in self._scraped_jobs
+        if result:
+            logger.debug(
+                "URL should be skipped",
+                extra={
+                    "url": url,
+                    "in_visited": normalized in self._visited,
+                    "in_scraped_jobs": normalized in self._scraped_jobs,
+                },
+            )
+        return result
 
     def filter_unvisited(self, urls: list[str]) -> list[str]:
-        return [url for url in urls if not self.should_skip(url)]
+        filtered = [url for url in urls if not self.should_skip(url)]
+        logger.debug(
+            "Filtered unvisited URLs",
+            extra={"input_count": len(urls), "output_count": len(filtered)},
+        )
+        return filtered
 
     def get_stats(self) -> dict:
-        return {
+        stats = {
             "visited_pages": len(self._visited),
             "scraped_jobs": len(self._scraped_jobs),
         }
-    
+        logger.debug(
+            "URLTracker stats",
+            extra=stats,
+        )
+        return stats
 
 
 @dataclass
@@ -367,25 +675,47 @@ class TrackedJobScraper:
         self._tracker = tracker
         self._config = config or JobScraperConfig()
         self._current_visited: list[str] = []
+        logger.debug(
+            "TrackedJobScraper initialized",
+            extra={
+                "max_navigation": self._config.max_navigation,
+                "page_load_wait": self._config.page_load_wait,
+                "llm_model": self._config.llm_model,
+            },
+        )
 
     async def _get_page(self):
         return await self._browser.get_current_page()
 
     async def _navigate(self, url: str) -> None:
+        logger.debug(
+            "Navigating to URL",
+            extra={"url": url},
+        )
         page = await self._get_page()
         await page.goto(url)
         await asyncio.sleep(self._config.page_load_wait)
         self._tracker.mark_visited(url)
         self._current_visited.append(url)
+        logger.debug(
+            "Navigation completed and URL marked as visited",
+            extra={"url": url, "wait_time": self._config.page_load_wait},
+        )
 
     async def scrape_jobs(self, url: str) -> ScrapeResult:
         self._current_visited = []
+        logger.info(
+            "Starting tracked job scrape",
+            extra={"url": url},
+        )
 
         if self._tracker.should_skip(url):
-            print(f"⏭️ Skipping already visited URL: {url}")
+            logger.info(
+                "Skipping already visited URL",
+                extra={"url": url},
+            )
             return ScrapeResult(jobs=[], visited_urls=[], job_detail_urls=[])
 
-        print(f"🚀 Starting job scrape for: {url}")
         await self._navigate(url)
 
         nav_count = 0
@@ -393,22 +723,46 @@ class TrackedJobScraper:
 
         while True:
             content = await self._extractor.extract()
+            logger.debug(
+                "Content extracted",
+                extra={"url": url, "content_length": len(content.structured_text)},
+            )
             analysis = await self._analyzer.analyze(url, content.structured_text)
-            # print(analysis)
+            logger.debug(
+                "Analysis completed",
+                extra={"url": url, "success": analysis.success},
+            )
+
             if not analysis.success:
-                print(f"❌ Analysis failed: {analysis.error}")
+                logger.error(
+                    "Analysis failed",
+                    extra={"url": url, "error": analysis.error},
+                )
                 break
 
             result = analysis.response
             page_category = result.get("page_category", "")
-            # print(analysis.response)
+            logger.debug(
+                "Analysis result",
+                extra={
+                    "url": url,
+                    "page_category": page_category,
+                    "next_action": result.get("next_action"),
+                },
+            )
+
             if page_category == "not_job_related":
-                print(f"⏭️ Page not job related: {url}")
+                logger.info(
+                    "Page not job related",
+                    extra={"url": url},
+                )
                 break
 
-
             if page_category == "single_job_posting":
-                print("Working on single job posting")
+                logger.info(
+                    "Working on single job posting",
+                    extra={"url": url},
+                )
                 jobs_on_page = result.get("jobs_listed_on_page", [])
                 job_detail_urls = []
 
@@ -421,6 +775,11 @@ class TrackedJobScraper:
                     if job_url:
                         job_detail_urls.append(job_url)
                         self._tracker.mark_job_scraped(job_url)
+
+                logger.info(
+                    "Single job posting scraped",
+                    extra={"job_count": len(all_jobs)},
+                )
                 return ScrapeResult(
                     jobs=all_jobs,
                     visited_urls=self._current_visited,
@@ -429,7 +788,13 @@ class TrackedJobScraper:
 
             if result.get("next_action") == "navigate":
                 if nav_count >= self._config.max_navigation:
-                    print(f"⏭️ Max navigation reached")
+                    logger.warning(
+                        "Max navigation reached",
+                        extra={
+                            "nav_count": nav_count,
+                            "max_navigation": self._config.max_navigation,
+                        },
+                    )
                     break
 
                 nav_target = result.get("next_action_target", {})
@@ -438,13 +803,19 @@ class TrackedJobScraper:
 
                 if nav_url and nav_url != url:
                     if self._tracker.should_skip(nav_url):
-                        print(f"⏭️ Navigation target already visited: {nav_url}")
+                        logger.warning(
+                            "Navigation target already visited",
+                            extra={"nav_url": nav_url},
+                        )
                         break
 
                     nav_count += 1
                     url = nav_url
                     await self._navigate(url)
-                    print(f"🔄 Navigated to: {url}")
+                    logger.info(
+                        "Navigated to new URL",
+                        extra={"url": url, "nav_count": nav_count},
+                    )
                     continue
 
                 link_text = nav_target.get("link_text", "")
@@ -455,6 +826,10 @@ class TrackedJobScraper:
                         f"Find the clickable element whose visible text most closely matches "
                         f"'{link_text}' and is used to navigate to the job listings page."
                     )
+                    logger.debug(
+                        "Searching for navigation element by text",
+                        extra={"link_text": link_text},
+                    )
                     button = await page.get_element_by_prompt(prompt, llm=self._llm)
                     if button:
                         await button.click("left")
@@ -463,9 +838,16 @@ class TrackedJobScraper:
                         current_url = page.url
                         self._tracker.mark_visited(current_url)
                         self._current_visited.append(current_url)
-                        print(f"🖱️ Clicked and navigated to: {current_url}")
+                        logger.info(
+                            "Clicked and navigated to new page",
+                            extra={"current_url": current_url, "link_text": link_text},
+                        )
                         continue
 
+                logger.debug(
+                    "No valid navigation target found",
+                    extra={"nav_target": nav_target},
+                )
                 break
 
             if page_category == "jobs_listed":
@@ -482,11 +864,25 @@ class TrackedJobScraper:
                         job_detail_urls.append(job_url)
                         self._tracker.mark_job_scraped(job_url)
 
-                print(f"✅ Found {len(jobs_on_page)} jobs on page")
+                logger.info(
+                    "Found jobs on page",
+                    extra={"job_count": len(jobs_on_page), "url": url},
+                )
 
                 pagination = result.get("pagination", {})
+                logger.debug(
+                    "Pagination info",
+                    extra={
+                        "is_paginated_page": pagination.get("is_paginated_page"),
+                        "has_more_pages": pagination.get("has_more_pages"),
+                    },
+                )
 
                 if not pagination.get("is_paginated_page") and pagination.get("has_more_pages"):
+                    logger.info(
+                        "Handling load more pagination",
+                        extra={"url": url},
+                    )
                     handler = PaginationHandler(self._browser, self._llm, self._extractor)
                     contents = await handler.handle_load_more(url)
 
@@ -502,6 +898,10 @@ class TrackedJobScraper:
                                 if job_url:
                                     self._tracker.mark_job_scraped(job_url)
 
+                    logger.info(
+                        "Load more pagination completed",
+                        extra={"total_jobs": len(all_jobs)},
+                    )
                     return ScrapeResult(
                         jobs=all_jobs,
                         visited_urls=self._current_visited,
@@ -509,6 +909,10 @@ class TrackedJobScraper:
                     )
 
                 if pagination.get("is_paginated_page"):
+                    logger.info(
+                        "Handling standard pagination",
+                        extra={"url": url},
+                    )
                     handler = PaginationHandler(self._browser, self._llm, self._extractor)
                     contents = await handler.handle_pagination(url)
 
@@ -524,20 +928,39 @@ class TrackedJobScraper:
                                 if job_url:
                                     self._tracker.mark_job_scraped(job_url)
 
+                    logger.info(
+                        "Standard pagination completed",
+                        extra={"total_jobs": len(all_jobs)},
+                    )
                     return ScrapeResult(
                         jobs=all_jobs,
                         visited_urls=self._current_visited,
                         job_detail_urls=[j.url for j in all_jobs if j.url],
                     )
 
+                logger.info(
+                    "No pagination, returning jobs",
+                    extra={"total_jobs": len(all_jobs)},
+                )
                 return ScrapeResult(
                     jobs=all_jobs,
                     visited_urls=self._current_visited,
                     job_detail_urls=[j.url for j in all_jobs if j.url],
                 )
 
+            logger.debug(
+                "Breaking main loop - unhandled page category",
+                extra={"page_category": page_category},
+            )
             break
 
+        logger.info(
+            "Tracked job scrape completed",
+            extra={
+                "total_jobs": len(all_jobs),
+                "visited_urls_count": len(self._current_visited),
+            },
+        )
         return ScrapeResult(
             jobs=all_jobs,
             visited_urls=self._current_visited,
@@ -549,17 +972,40 @@ class TrackedJobScraper:
         jobs: list["JobEntry"],
         skip_already_scraped: bool = True,
     ) -> list["JobEntry"]:
-        print(f"\n📝 Scraping details for {len(jobs)} jobs\n")
+        logger.info(
+            "Starting job details scrape",
+            extra={"job_count": len(jobs), "skip_already_scraped": skip_already_scraped},
+        )
 
         for i, job in enumerate(jobs):
             if not job.url:
+                logger.debug(
+                    "Skipping job without URL",
+                    extra={"job_index": i, "job_title": job.title},
+                )
                 continue
 
             if skip_already_scraped and self._tracker.is_visited(job.url):
-                print(f"  [{i + 1}/{len(jobs)}] ⏭️ Skipping (already visited): {job.title}")
+                logger.debug(
+                    "Skipping already visited job",
+                    extra={
+                        "job_index": i + 1,
+                        "total_jobs": len(jobs),
+                        "job_title": job.title,
+                        "job_url": job.url,
+                    },
+                )
                 continue
 
-            print(f"  [{i + 1}/{len(jobs)}] {job.title}")
+            logger.debug(
+                "Scraping job details",
+                extra={
+                    "job_index": i + 1,
+                    "total_jobs": len(jobs),
+                    "job_title": job.title,
+                    "job_url": job.url,
+                },
+            )
 
             try:
                 await self._navigate(job.url)
@@ -570,13 +1016,33 @@ class TrackedJobScraper:
                 )
                 result = analysis.response
                 if analysis.success and result.get('page_category', '') == "not_job_related":
+                    logger.info(
+                        "Job detail page not job related, skipping",
+                        extra={"job_url": job.url},
+                    )
                     continue
                 if analysis.success:
                     job.details = analysis.response
+                    logger.debug(
+                        "Job details scraped successfully",
+                        extra={"job_url": job.url},
+                    )
+                else:
+                    logger.warning(
+                        "Job details analysis failed",
+                        extra={"job_url": job.url, "error": analysis.error},
+                    )
             except Exception as e:
-                print(f"    ❌ Error: {e}")
+                logger.error(
+                    "Error scraping job details",
+                    extra={"job_url": job.url, "error": str(e)},
+                    exc_info=True,
+                )
 
+        logger.info(
+            "Job details scrape completed",
+            extra={"job_count": len(jobs)},
+        )
         return jobs
-
 
 

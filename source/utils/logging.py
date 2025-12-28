@@ -69,7 +69,7 @@ class JsonFormatter(logging.Formatter):
 
 def setup_logger(name):
 	logger = logging.getLogger(name)
-	logger.setLevel(logging.DEBUG)
+	logger.setLevel(logging.INFO)
 
 	# Configure streamhandler to stdout
 	stream_handler = logging.StreamHandler()
