@@ -14,6 +14,7 @@ from browser_use import Agent, BrowserSession, ChatOpenAI
 from core.config import settings
 from service.mongdb_service import MongoDBService
 from utils.file_storage import JobFileManager
+import asyncio
 from typing import List, Dict, Any
 from utils.logging import setup_logger
 

@@ -728,6 +728,7 @@ class TrackedJobScraper:
                 extra={"url": url, "content_length": len(content.structured_text)},
             )
             analysis = await self._analyzer.analyze(url, content.structured_text)
+        
             logger.debug(
                 "Analysis completed",
                 extra={"url": url, "success": analysis.success},

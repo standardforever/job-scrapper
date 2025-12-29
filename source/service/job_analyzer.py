@@ -62,12 +62,12 @@ class JobPageAnalyzer:
                 "prompt_type": prompt_type.value if hasattr(prompt_type, 'value') else str(prompt_type),
                 "json_response": json_resonse,
             },
-        )
+        ) 
 
         prompt = (
-            create_job_page_analysis_prompt_detail(url, content)
+            get_job_extraction_prompt(content)
             if prompt_type == AnalysisPromptType.STRUCTURED
-            else get_job_extraction_prompt( content)
+            else create_job_page_analysis_prompt(url, content)
         )
         logger.debug(
             "Prompt created",
