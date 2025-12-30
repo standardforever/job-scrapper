@@ -88,12 +88,24 @@ class JobPageAnalyzer:
                     model=self._model,
                     input=prompt,
                 )
-                print('\n\n\n\n\n\n')
+         
                 # Print token usage
-                print(f"Input tokens: {response.usage.input_tokens}")
-                print(f"Output tokens: {response.usage.output_tokens}")
-                print(f"Total tokens: {response.usage.total_tokens}")
-                print('\n\n\n\n\n\n')
+                logger.info("Input tokens",
+                            extra={"token": response.usage.input_tokens, "url": url,
+                "content_length": len(content)})
+                logger.info("Output tokens",
+                            extra={"token": response.usage.output_tokens, "url": url,
+                "content_length": len(content)})
+                logger.info("Total tokens",
+                            extra={"token": response.usage.total_tokens, "url": url,
+                "content_length": len(content)})
+             
+            
+                logger.info(
+                    "Token usage",
+                    extra={"Input tokens": response.usage.input_tokens, "Output tokens": response.usage.output_tokens,
+                           }
+                )
 
                 output = response.output_text
                 logger.debug(
