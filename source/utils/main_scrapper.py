@@ -24,6 +24,8 @@ logger = setup_logger(__name__)
 
 
 
+
+
 async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
     logger.info(
         "Starting main scraper",
@@ -127,20 +129,22 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
                 )
 
             # === FALLBACK: Direct domain exploration ===
-            if not job_filtered:
-                logger.warning(
-                    "No job URLs from search, trying fallback discovery",
-                    extra={"domain": domain},
-                )
-                job_filtered = await fallback_discovery.discover_job_urls_from_domain(
-                    domain=domain,
-                    try_common_paths=False,
-                    extract_from_homepage=True,
-                )
-                logger.info(
-                    "Fallback discovery completed",
-                    extra={"urls_discovered": len(job_filtered)},
-                )
+            # if not job_filtered:
+            logger.warning(
+                "No job URLs from search, trying fallback discovery",
+                extra={"domain": domain},
+            )
+            fallback_urls = await fallback_discovery.discover_job_urls_from_domain(
+                domain=domain,
+                try_common_paths=False,
+                extract_from_homepage=True,
+            )
+            logger.info(
+                "Fallback discovery completed",
+                extra={"urls_discovered": len(job_filtered)},
+            )
+
+            job_filtered = list(set(job_filtered + fallback_urls))
 
             if not job_filtered:
                 logger.error(
@@ -165,7 +169,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
             all_scraped_jobs: list[JobEntry] = []
             jobs_saved = 0
             jobs_updated = 0
-    
+
             for url in job_filtered:
                 url = tracker.normalize_full_path(url, domain)
 
@@ -306,7 +310,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
                 )
 
                 return all_detail_jobs
-            return []
+            return all_detail_jobs
 
         except Exception as e:
             logger.error(
@@ -314,11 +318,11 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
                 extra={"domain": domain, "error": str(e)},
                 exc_info=True,
             )
-            return []
+            return all_detail_jobs
         finally:
             logger.debug("Main scraper execution finished")
             await browser.stop()
-    
+
 
             
 

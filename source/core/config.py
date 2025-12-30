@@ -12,7 +12,7 @@ class Setttings(BaseSettings):
     QDRANT_API_KEY: Optional[str] = None
 
     #Mongdb configuration
-    MONGO_URI: AnyUrl = "mongodb://localhost:27017/"
+    MONGO_URI: str = "mongodb://127.0.0.1:27017"
     DATABASE_NAME: str = "job_scraper"
 
     
