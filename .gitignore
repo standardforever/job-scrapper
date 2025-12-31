@@ -210,3 +210,7 @@ __marimo__/
 
 mongo-data/
 mongo-data
+
+source/job_outputs
+source/app.log
+source/tasks_db.json
