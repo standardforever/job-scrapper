@@ -5,7 +5,7 @@
 
 from service.search_engine_service import WebSearcher, SearchEngine
 from service.brower_scraper_service import DOMContentExtractor, ExtractionConfig
-from service.chromium_service import ChromeCDPManager
+from service.chromium_service import ChromeCDPManager, ChromeConfig
 from service.job_analyzer import JobPageAnalyzer, AnalysisPromptType
 from service.agent_service import JobScraperConfig, URLTracker, TrackedJobScraper, JobEntry
 from utils.domain_name_filters import URLFilter, FallbackURLDiscovery
@@ -17,6 +17,7 @@ from utils.file_storage import JobFileManager
 import asyncio
 from typing import List, Dict, Any
 from utils.logging import setup_logger
+from datetime import datetime
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -26,7 +27,7 @@ logger = setup_logger(__name__)
 
 
 
-async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
+async def main_scrapper(domain: str, agent_id: int) -> List[Dict[str, Any]]:
     logger.info(
         "Starting main scraper",
         extra={"domain": domain},
@@ -45,7 +46,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
         handle_cookies=True,
         handle_popups=True,
         scroll_to_load=True,  # For infinite scroll pages
-        wait_seconds=3.0,
+        wait_seconds=4.0,
     )
     logger.debug(
         "ExtractionConfig initialized",
@@ -65,8 +66,10 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
             "collection_name": "jobs",
         },
     )
-
-    async with ChromeCDPManager() as manager:
+    chrome_config =ChromeConfig(
+        port= 9222 + agent_id
+    )
+    async with ChromeCDPManager(config=chrome_config) as manager:
         logger.debug("ChromeCDPManager context entered")
         page = manager.page
         
@@ -293,6 +296,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
                     job_doc['is_external_application'] = ats_info["is_external_application"]
                     job_doc['ats_provider'] = ats_info["ats_provider"]
                     job_doc['detection_reason'] = ats_info["detection_reason"]
+                    job_doc['created_at'] = datetime.now()
         
                     all_detail_jobs.append(job_doc)
                     logger.debug(

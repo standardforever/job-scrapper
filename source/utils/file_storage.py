@@ -11,7 +11,7 @@ class JobFileManager:
     def __init__(
         self,
         output_dir: str = "job_outputs",
-        max_records_per_file: int = 100,
+        max_records_per_file: int = 1000,
         file_prefix: str = "jobs"
     ):
         self.output_dir = Path(output_dir)
@@ -161,3 +161,71 @@ def save_job_to_file(job_data: dict, manager: Optional[JobFileManager] = None) -
         job_file_manager = JobFileManager()
     
     return job_file_manager.add_job(job_data)
+
+
+
+
+
+class TaskStorage:
+    """Manages task persistence to avoid data loss"""
+    
+    def __init__(self, file_path: str = "tasks_db.json"):
+        self.file_path = Path(file_path)
+        self.tasks = self._load()
+    
+    def _load(self) -> dict:
+        """Load tasks from file"""
+        if self.file_path.exists():
+            try:
+                with open(self.file_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                print("Error loading tasks file, starting fresh")
+                return {}
+        return {}
+    
+    def _save(self):
+        """Save tasks to file"""
+        with open(self.file_path, "w", encoding="utf-8") as f:
+            json.dump(self.tasks, f, indent=2, ensure_ascii=False, default=str)
+    
+    def _deserialize_dates(self, data: dict) -> dict:
+        """Convert ISO date strings back to datetime objects"""
+        if not data:
+            return data
+        
+        date_fields = ["created_at", "completed_at"]
+        for field in date_fields:
+            if field in data and isinstance(data[field], str):
+                try:
+                    data[field] = datetime.fromisoformat(data[field])
+                except (ValueError, TypeError):
+                    pass
+        return data
+    
+    def get(self, task_id: str) -> Optional[dict]:
+        """Get a task by ID with datetime conversion"""
+        data = self.tasks.get(task_id)
+        return self._deserialize_dates(data) if data else None
+    
+    def set(self, task_id: str, data: dict):
+        """Set/update a task"""
+        self.tasks[task_id] = data
+        self._save()
+    
+    def update(self, task_id: str, updates: dict):
+        """Update specific fields of a task"""
+        if task_id in self.tasks:
+            self.tasks[task_id].update(updates)
+            self._save()
+    
+    def all(self) -> dict:
+        """Get all tasks with datetime conversion"""
+        return {
+            task_id: self._deserialize_dates(data.copy()) 
+            for task_id, data in self.tasks.items()
+        }
+    
+    def __contains__(self, task_id: str) -> bool:
+        """Check if task exists"""
+        return task_id in self.tasks

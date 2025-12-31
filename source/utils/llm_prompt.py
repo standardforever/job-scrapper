@@ -108,8 +108,6 @@ RESPONSE SCHEMA:
 """
     return prompt
 
-
-
 def get_job_extraction_prompt(text: str) -> str:
     """
     Generate a prompt for extracting structured job data from raw text.
@@ -120,76 +118,214 @@ def get_job_extraction_prompt(text: str) -> str:
     Returns:
         Formatted prompt string for LLM processing
     """
-    return f"""Extract job listing data from the text below. Return ONLY valid JSON starting with {{ and ending with }}.
+    return f"""You are a job listing data extraction expert. Extract structured information from the text below.
 
-RULES:
-1. Map to standard fields when present (use null if not found)
-2. ALL text content must be returned - nothing omitted except buttons/URLs
+OUTPUT FORMAT:
+- Return ONLY valid JSON
+- Start with {{ and end with }}
+- Do NOT wrap in markdown code blocks (no ```json or ```)
+- No markdown, no explanations, no preamble
+- Use null for missing fields (never use empty strings)
 
-SCHEMA:
+LOCATION FILTER (CRITICAL):
+1. INCLUDE: Jobs in UK locations OR unspecified/remote locations
+2. EXCLUDE: Jobs with explicitly stated non-UK locations
+3. If job is excluded, return empty dictionary: {{}}
+
+CONTENT EXTRACTION RULES:
+1. Extract ALL meaningful job-related content from the text
+2. EXCLUDE navigation elements, buttons, footer text, cookie notices, and unrelated website content
+3. Map content to the most appropriate standard field - do NOT duplicate in additional_sections
+4. If a section fits a standard field (description, responsibilities, requirements, benefits, company_info, how_to_apply), use that field
+5. Only use additional_sections for unique sections that don't fit standard fields
+
+FIELD MAPPING GUIDE:
+→ "description": Role Overview, About the Role, Job Summary, Position Description
+→ "responsibilities": Key Responsibilities, Main Duties, Day-to-Day Tasks, What You'll Do
+→ "requirements": Essential Criteria, Required Skills, Qualifications, Experience Needed, Must-Have Skills
+→ "benefits": What We Offer, Package, Perks, Employee Benefits
+→ "company_info": About Us, Company Overview, Who We Are, Our Culture
+→ "how_to_apply": Application Instructions, How to Apply, Application Process, Next Steps
+
+JSON SCHEMA:
 {{
-  "title": null,
-  "company_name": null,
-  "holiday": null,
+  "is_job_page": true,
+  "confidence_reason": "Why you determined this is/isn't a valid job listing",
+  "title": "Job title as stated",
+  "company_name": "Employer name",
+  "holiday": "Holiday/vacation days (e.g., '25 days' or '25 days plus bank holidays')",
   "location": {{
-    "address": "full address",
-    "city": null,
-    "region": null,
-    "postcode": null,
-    "country": null
+    "address": "Full address if provided",
+    "city": "City name",
+    "region": "County/Region/State",
+    "postcode": "Postal code",
+    "country": "Country name (extract 'UK', 'United Kingdom', etc.)"
   }},
   "salary": {{
-    "min": null,
-    "max": null,
-    "currency": "GBP|USD|EUR|etc",
+    "min": "Minimum as number (e.g., 30000)",
+    "max": "Maximum as number (e.g., 45000)",
+    "currency": "GBP|USD|EUR (3-letter code)",
     "period": "annually|monthly|weekly|hourly|daily",
-    "actual_salary": null,
-    "raw": "original salary text"
+    "actual_salary": "Exact salary if single figure (e.g., 35000)",
+    "raw": "Original salary text exactly as written"
   }},
-  "job_type": "full-time|part-time|null",
-  "contract_type": "permanent|temporary|contract|freelance|null",
-  "remote_option": "remote|hybrid|on-site|null",
+  "job_type": "full-time|part-time",
+  "contract_type": "permanent|temporary|contract|freelance",
+  "remote_option": "remote|hybrid|on-site",
   "hours": {{
-    "weekly": null,
-    "daily": null,
-    "details": "raw hours text"
+    "weekly": "Weekly hours as number (e.g., 37.5)",
+    "daily": "Daily hours as number (e.g., 7.5)",
+    "details": "Any additional hours information as written"
   }},
-  "closing_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
-  "interview_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
-  "start_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
-  "post_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
-  "contact": {{"name": null, "email": null, "phone": null}},
-  "job_reference": null,
-  "description": "main job description text",
-  "responsibilities": [],
-  "requirements": [],
-  "benefits": [],
-  "company_info": null,
-  "how_to_apply": null,
+  "closing_date": {{
+    "iso_format": "YYYY-MM-DD format if parseable",
+    "raw_text": "Exactly as written in listing"
+  }},
+  "interview_date": {{
+    "iso_format": "YYYY-MM-DD format if parseable",
+    "raw_text": "Exactly as written in listing"
+  }},
+  "start_date": {{
+    "iso_format": "YYYY-MM-DD format if parseable",
+    "raw_text": "Exactly as written in listing"
+  }},
+  "post_date": {{
+    "iso_format": "YYYY-MM-DD format if parseable",
+    "raw_text": "Exactly as written in listing"
+  }},
+  "contact": {{
+    "name": "Contact person name",
+    "email": "Contact email",
+    "phone": "Contact phone number"
+  }},
+  "job_reference": "Reference/ID number for the position",
+  "description": "Main job description and overview paragraph(s)",
+  "responsibilities": ["List of key duties and responsibilities"],
+  "requirements": ["List of required qualifications, skills, and experience"],
+  "benefits": ["List of benefits, perks, and package details"],
+  "company_info": "Information about the employer/organization",
+  "how_to_apply": "Application instructions and process details",
+  "application_method": {{
+    "type": "email|online_form|external_link|post|phone|in_person",
+    "url": "Application URL if applicable",
+    "email": "Application email if applicable",
+    "instructions": "Specific application instructions"
+  }},
   "additional_sections": {{
-    "section_name": "full text content"
-  }},
-  "is_job_page": true,
-  "confidence_reason": "brief explanation",
-   "application_method": {{
-    "type": "email|online_form|external_link|post|phone|in_person|null",
-    "url": null,
-    "email": null,
-    "instructions": "how to apply text"
+    "Unique Section Name": "Content that doesn't fit standard fields above"
   }}
-  
 }}
 
-FIELD MAPPING (use these, NOT additional_sections):
-- "Role Overview", "About the Role", "Job Description" → description
-- "Key Responsibilities", "Duties" → responsibilities
-- "Requirements", "Qualifications", "Skills", "Experience" → requirements  
-- "Benefits", "Perks", "What We Offer" → benefits
-- "About Us", "Company Overview", "Who We Are" → company_info
-- "How to Apply", "Application Process", "To Apply" → how_to_apply
+EXAMPLES OF WHAT TO EXCLUDE:
+- "Apply Now" buttons or "Click Here" links
+- Navigation menus and website headers
+- "Cookie Policy", "Privacy Policy", "Terms of Service"
+- Social media links and share buttons
+- "Related Jobs", "You may also like" sections
+- Job board branding and footer content
+- Timestamps like "Posted 2 hours ago" (unless part of post_date)
 
-TEXT:
+EXAMPLES OF WHAT TO INCLUDE:
+- All descriptive text about the role and company
+- Bullet points listing duties, requirements, or benefits
+- Salary and compensation details
+- Working hours and schedule information
+- Location and remote work details
+- Application deadline and process
+- Interview or start date information
+- Company culture and values descriptions
+
+TEXT TO EXTRACT FROM:
 {text}"""
+
+# def get_job_extraction_prompt(text: str) -> str:
+#     """
+#     Generate a prompt for extracting structured job data from raw text.
+    
+#     Args:
+#         text: Raw text content from a job listing page
+        
+#     Returns:
+#         Formatted prompt string for LLM processing
+#     """
+#     return f"""Extract job listing data from the text below. Return ONLY valid JSON starting with {{ and ending with }}.
+
+# RULES:
+# 1. Map to standard fields when present (use null if not found)
+# 2. ALL text content must be returned - nothing omitted except buttons/URLs
+
+# SCHEMA:
+# {{
+#   "title": null,
+#   "company_name": null,
+#   "holiday": null,
+#   "location": {{
+#     "address": "full address",
+#     "city": null,
+#     "region": null,
+#     "postcode": null,
+#     "country": null
+#   }},
+#   "salary": {{
+#     "min": null,
+#     "max": null,
+#     "currency": "GBP|USD|EUR|etc",
+#     "period": "annually|monthly|weekly|hourly|daily",
+#     "actual_salary": null,
+#     "raw": "original salary text"
+#   }},
+#   "job_type": "full-time|part-time|null",
+#   "contract_type": "permanent|temporary|contract|freelance|null",
+#   "remote_option": "remote|hybrid|on-site|null",
+#   "hours": {{
+#     "weekly": null,
+#     "daily": null,
+#     "details": "raw hours text"
+#   }},
+#   "closing_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+#   "interview_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+#   "start_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+#   "post_date": {{"iso_format": "ISO format", "raw_text": "raw text"}}
+#   "contact": {{"name": null, "email": null, "phone": null}},
+#   "job_reference": null,
+#   "description": "main job description text",
+#   "responsibilities": [],
+#   "requirements": [],
+#   "benefits": [],
+#   "company_info": null,
+#   "how_to_apply": null,
+#   "additional_sections": {{
+#     "section_name": "full text content"
+#   }},
+#   "is_job_page": true,
+#   "confidence_reason": "brief explanation",
+#    "application_method": {{
+#     "type": "email|online_form|external_link|post|phone|in_person|null",
+#     "url": null,
+#     "email": null,
+#     "instructions": "how to apply text"
+#   }}
+  
+# }}
+
+# FIELD MAPPING (use these, NOT additional_sections):
+# - "Role Overview", "About the Role", "Job Description" → description
+# - "Key Responsibilities", "Duties" → responsibilities
+# - "Requirements", "Qualifications", "Skills", "Experience" → requirements  
+# - "Benefits", "Perks", "What We Offer" → benefits
+# - "About Us", "Company Overview", "Who We Are" → company_info
+# - "How to Apply", "Application Process", "To Apply" → how_to_apply
+
+# FILTER:
+# - Include jobs with UK location or unspecified location (including remote)
+# - Exclude jobs with locaion specified and non-UK locations
+# NOTE: if non-UK location or remote or unspecified location return {{}} (empty dictionary)
+# NOTE: All text content must be return except things not related to the job(noise), button/link
+# NOTE: Any paragraph or section already have a key don't include in additional_sections(i.e don't repeat yourself in additional_sections)
+
+
+# TEXT:
+# {text}"""
 
 
 # def get_job_extraction_prompt(text: str) -> str:
