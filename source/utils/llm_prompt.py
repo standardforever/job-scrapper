@@ -108,7 +108,7 @@ RESPONSE SCHEMA:
 """
     return prompt
 
-def get_job_extraction_prompt(text: str) -> str:
+def get_job_extraction_prompt(text: str, current_domain: str, main_domain) -> str:
     """
     Generate a prompt for extracting structured job data from raw text.
     
@@ -147,8 +147,21 @@ FIELD MAPPING GUIDE:
 → "company_info": About Us, Company Overview, Who We Are, Our Culture
 → "how_to_apply": Application Instructions, How to Apply, Application Process, Next Steps
 
+ATS DETECTION:
+- Current page domain: {current_domain}
+- Main company domain: {main_domain}
+- Check if the job listing uses an Applicant Tracking System (ATS):
+  1. If the current domain is different from the main domain → is_ats = true
+  2. OR if there's an apply button/link pointing to a domain different from the main domain → is_ats = true
+- NOTE: Compare base domains only (e.g., "example.com"), ignore subdomains (e.g., "jobs.example.com" and "www.example.com" have same base domain)
+
 JSON SCHEMA:
 {{
+  "ai_ats_details": {{
+    "platform_name": "Name of ATS platform if identifiable (e.g., Workday, Greenhouse, Lever)",
+    "apply_url": "URL of apply button/link if it points to external domain",
+    "is_ats": false
+  }},
   "is_job_page": true,
   "confidence_reason": "Why you determined this is/isn't a valid job listing",
   "title": "Job title as stated",

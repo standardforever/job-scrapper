@@ -60,6 +60,12 @@ def flatten_job_data(job: Dict[str, Any]) -> Dict[str, Any]:
     flat["hours_daily"] = hours.get("daily")
     flat["hours_details"] = hours.get("details")
     
+    # ai ats fields
+    ai_ats = job.get("ai_ats_details", {}) or {}
+    flat["is_ats_ai"] = ai_ats.get("is_ats")
+    flat["ats_apply_url_ai"] = ai_ats.get("apply_url")
+    flat["ats_platform_name_ai"] = ai_ats.get("platform_name")
+    
     # Date fields
     for date_field in ["closing_date", "interview_date", "start_date", "post_date"]:
         date_obj = job.get(date_field) or {}

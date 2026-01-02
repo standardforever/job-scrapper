@@ -32,7 +32,6 @@ class ChromeConfig:
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 
         # Linux
-        "/home/azureuser/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome",
         "/usr/bin/google-chrome",
         "/usr/bin/chromium-browser",
 
@@ -47,11 +46,6 @@ class ChromeConfig:
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-extensions",
-        "--headless=new",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-software-rasterizer",
     ])
 
 

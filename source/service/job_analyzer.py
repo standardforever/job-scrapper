@@ -52,7 +52,8 @@ class JobPageAnalyzer:
         url: str,
         content: str,
         prompt_type: AnalysisPromptType = AnalysisPromptType.UNSTRUCTURED,
-        json_resonse: bool = True
+        json_resonse: bool = True,
+        main_domain: str | None = None
     ) -> AnalysisResult:
         logger.info(
             "Starting page analysis",
@@ -65,7 +66,7 @@ class JobPageAnalyzer:
         ) 
 
         prompt = (
-            get_job_extraction_prompt(content)
+            get_job_extraction_prompt(content, url, main_domain)
             if prompt_type == AnalysisPromptType.STRUCTURED
             else create_job_page_analysis_prompt(url, content)
         )

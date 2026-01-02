@@ -245,6 +245,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
                             job.url,
                             text_extracted.structured_text,
                             prompt_type=AnalysisPromptType.STRUCTURED,
+                            main_domain=domain
                         )
                         if analysis.success:
                             job.details = analysis.response
