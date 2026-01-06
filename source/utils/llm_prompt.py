@@ -77,7 +77,7 @@ RESPONSE SCHEMA:
     "page_category": "jobs_listed" | "job_listings_preview_page" | "navigation_required" | "single_job_posting" | "not_job_related",
     "next_action": "scrape_jobs" | "navigate" | "scrape_single_job" | "stop",
     "confidence": <float 0.0-1.0>,
-    "reasoning": "<brief explanation>",
+    "confidence_reason": "<brief explanation>",
     "domain_name": "<website main domain>",
     "url": "<main url>",
 
@@ -478,7 +478,7 @@ RESPONSE SCHEMA:
     "page_category": "single_job_posting" | "not_job_detail_page",
     "next_action": "scrape_job" | "stop",
     "confidence": <float 0.0-1.0>,
-    "reasoning": "<brief explanation of classification decision>",
+    "confidence_reason": "<brief explanation of classification decision>",
     
     "job_details": {{
         "title": "<job title or null>",
