@@ -229,7 +229,12 @@ async def process_urls_with_agent(
             print(f"[Agent {agent_id}] Processing: {domain}")
             
             # Run scraper (this will be cancelled if task is cancelled)
-            all_scraped_jobs = await main_scrapper(domain=domain, agent_id=agent_id)
+            jobs_response = await main_scrapper(domain=domain, agent_id=agent_id, llm_model="gpt-5-nano")
+            all_scraped_jobs = jobs_response.get("job_found", [])
+            if not all_scraped_jobs:
+                file_manager.add_job(jobs_response)
+                print("NO job found on this page")
+                return
             
             # Check cancellation again before saving
             task_data = tasks_db.get(task_id)
@@ -239,7 +244,9 @@ async def process_urls_with_agent(
             
             # Save jobs
             for job_doc in all_scraped_jobs:
-                save_info = file_manager.add_job(job_doc)
+                job_doc.details["task_id"] = task_id
+                
+                save_info = file_manager.add_job(job_doc.details)
                 result["status"] = "success"
                 result["save_info"] = save_info
             
@@ -274,7 +281,7 @@ async def run_scraping_task(task_id: str, urls: List[str], num_agents: int, max_
         file_manager = JobFileManager(
             output_dir="job_outputs",
             max_records_per_file=max_records_per_file,
-            file_prefix="jobs"
+            file_prefix=f"jobs_{task_id}"
         )
         tasks_db.update(task_id, {"status": TaskStatus.RUNNING})
   
@@ -428,7 +435,8 @@ async def start_scraping_from_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = Depends(validate_spreadsheet_file),
     num_agents: int = Form(default=2, ge=1, le=5, description="Number of parallel agents"),
-    domain_column: str = Form(default="domain", description="Name of the column containing domains")
+    domain_column: str = Form(default="domain", description="Name of the column containing domains"),
+    task_id: str = Form(default=None, description="Task ID you want to rerun"),
 ):
     """
     Start a background scraping task from a CSV or Excel file.
@@ -454,7 +462,7 @@ async def start_scraping_from_file(
         domains = await read_spreadsheet(file, domain_column)
         
         # Create task
-        task_id = str(uuid4())
+        task_id = task_id or  str(uuid4())
         
         # Initialize task tracking
         tasks_db.set(task_id, {
@@ -701,7 +709,7 @@ async def cancel_all_tasks():
 # ============================================================================
 
 @app.get("/export/csv", tags=["Export"])
-async def export_jobs_to_csv():
+async def export_jobs_to_csv(task_id: str | None = None):
     """
     Export all scraped jobs to CSV format and download.
     
@@ -710,7 +718,7 @@ async def export_jobs_to_csv():
     """
     try:
         # Read all jobs from files
-        all_jobs = read_all_jobs_from_files(output_dir="job_outputs")
+        all_jobs = read_all_jobs_from_files(output_dir="job_outputs", task_id=task_id)
         
         # Generate CSV
         csv_content = generate_csv_from_jobs(all_jobs)

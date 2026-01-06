@@ -154,6 +154,7 @@ ATS DETECTION:
   1. If the current domain is different from the main domain → is_ats = true
   2. OR if there's an apply button/link pointing to a domain different from the main domain → is_ats = true
 - NOTE: Compare base domains only (e.g., "example.com"), ignore subdomains (e.g., "jobs.example.com" and "www.example.com" have same base domain)
+- NOTE: Also check from the page Text if ATS can be detect
 
 JSON SCHEMA:
 {{

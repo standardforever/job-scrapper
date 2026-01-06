@@ -8,6 +8,12 @@ import random
 from playwright.async_api import  Page, TimeoutError as PlaywrightTimeoutError
 from utils.logging import setup_logger
 
+
+from typing import List
+from urllib.parse import urlparse
+import aiohttp
+from bs4 import BeautifulSoup
+
 # Configure logging
 logger = setup_logger(__name__)
 
@@ -242,44 +248,153 @@ class WebSearcher:
             error="Max retries exceeded",
         )
 
-    async def _search_duckduckgo(self, query: str) -> list[str]:
+    # async def _search_duckduckgo(self, query: str) -> list[str]:
+    #     logger.debug(
+    #         "Starting DuckDuckGo search",
+    #         extra={"query": query},
+    #     )
+
+    #     await self._page.goto("https://duckduckgo.com/")
+    #     logger.debug("Navigated to DuckDuckGo")
+
+    #     search_box = self._page.locator('input[name="q"]')
+    #     await search_box.wait_for(timeout=self._config.search_timeout)
+    #     await search_box.fill(query)
+    #     await search_box.press("Enter")
+    #     logger.debug(
+    #         "Search query submitted",
+    #         extra={"query": query},
+    #     )
+
+    #     results_container = self._page.locator("ol.react-results--main")
+    #     await results_container.wait_for(timeout=self._config.search_timeout)
+    #     logger.debug("Results container loaded")
+
+    #     await asyncio.sleep(self._config.results_wait_time)
+
+    #     result_links = self._page.locator('article[data-testid="result"] a[href]')
+    #     urls = await self._extract_urls_from_locator(result_links)
+
+    #     deduplicated_urls = self._deduplicate_urls(urls)
+    #     logger.debug(
+    #         "DuckDuckGo search completed",
+    #         extra={
+    #             "query": query,
+    #             "raw_urls_count": len(urls),
+    #             "deduplicated_urls_count": len(deduplicated_urls),
+    #         },
+    #     )
+
+    #     return deduplicated_urls
+    
+    
+    
+
+
+    def unwrap_ddg_url(self, href: str) -> str | None:
+        """
+        Extract the real destination URL from a DuckDuckGo redirect link.
+        """
+        from urllib.parse import urlparse, parse_qs, unquote
+        if not href:
+            return None
+
+        # Handle protocol-relative URLs
+        if href.startswith("//"):
+            href = "https:" + href
+
+        parsed = urlparse(href)
+
+        if "duckduckgo.com/l/" not in parsed.netloc + parsed.path:
+            return href  # already a real URL
+
+        qs = parse_qs(parsed.query)
+        uddg = qs.get("uddg")
+
+        if not uddg:
+            return None
+
+        return unquote(uddg[0])
+
+    
+    async def _search_duckduckgo(
+        self,
+        query: str,
+        timeout: int = 15,
+    ) -> list[str]:
+        """
+        Perform a DuckDuckGo search using HTTP (no browser)
+        and extract result URLs.
+
+        Returns:
+            List[str]: deduplicated result URLs
+        """
         logger.debug(
-            "Starting DuckDuckGo search",
+            "Starting DuckDuckGo HTTP search",
             extra={"query": query},
         )
-
-        await self._page.goto("https://duckduckgo.com/")
-        logger.debug("Navigated to DuckDuckGo")
-
-        search_box = self._page.locator('input[name="q"]')
-        await search_box.wait_for(timeout=self._config.search_timeout)
-        await search_box.fill(query)
-        await search_box.press("Enter")
-        logger.debug(
-            "Search query submitted",
-            extra={"query": query},
+        
+        REAL_UA = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
         )
 
-        results_container = self._page.locator("ol.react-results--main")
-        await results_container.wait_for(timeout=self._config.search_timeout)
-        logger.debug("Results container loaded")
 
-        await asyncio.sleep(self._config.results_wait_time)
+        headers = {
+            "User-Agent": REAL_UA,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://duckduckgo.com/",
+        }
 
-        result_links = self._page.locator('article[data-testid="result"] a[href]')
-        urls = await self._extract_urls_from_locator(result_links)
+        urls: list[str] = []
 
-        deduplicated_urls = self._deduplicate_urls(urls)
+        async with aiohttp.ClientSession(headers=headers) as session:
+            async with session.get(
+                "https://duckduckgo.com/html/",
+                params={"q": query},
+                timeout=aiohttp.ClientTimeout(total=timeout),
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "DuckDuckGo HTTP search failed",
+                        extra={
+                            "query": query,
+                            "status": resp.status,
+                        },
+                    )
+                    raise RuntimeError(
+                        f"DuckDuckGo HTTP search returned status {resp.status}"
+                    )
+                html = await resp.text()
+                
         logger.debug(
-            "DuckDuckGo search completed",
+            "DuckDuckGo HTTP response received",
             extra={
                 "query": query,
-                "raw_urls_count": len(urls),
-                "deduplicated_urls_count": len(deduplicated_urls),
+                "response_length": len(html),
             },
         )
 
-        return deduplicated_urls
+        soup = BeautifulSoup(html, "lxml")
+
+        for a in soup.select("a.result__a"):
+            href = a.get("href")
+            real_url = self.unwrap_ddg_url(href)
+
+            if real_url and real_url.startswith("http"):
+                urls.append(real_url)
+
+        # Deduplicate (preserve order)
+        seen = set()
+        deduped = []
+        for url in urls:
+            if url not in seen:
+                seen.add(url)
+                deduped.append(url)
+
+        return deduped
+
 
     async def _search_google(self, query: str) -> list[str]:
         logger.debug(

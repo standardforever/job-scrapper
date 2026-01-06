@@ -20,22 +20,14 @@ def flatten_job_data(job: Dict[str, Any]) -> Dict[str, Any]:
     simple_fields = [
         "is_job_page", "confidence_reason", "title", "company_name", 
         "holiday", "job_type", "contract_type", "remote_option",
-        "job_reference", "description", "company_info", "how_to_apply"
+        "job_reference", "description", "company_info", "how_to_apply", "main_domain",
+        "raw_text", "filter_domain", "url", "is_known_ats", "is_ats", "is_external_application",
+        "ats_provider", "detection_reason", "created_at", "domain", "result", "success", "message", "error", "job_urls_checked"
     ]
     for field in simple_fields:
         flat[field] = job.get(field)
     
-    # Additional metadata fields (from scraping process)
-    flat["main_domain"] = job.get("main_domain")
-    flat["raw_text"] = job.get("raw_text")
-    flat["filter_domain"] = job.get("filter_domain")
-    flat["url"] = job.get("url")
-    flat["is_known_ats"] = job.get("is_known_ats")
-    flat["is_ats"] = job.get("is_ats")
-    flat["is_external_application"] = job.get("is_external_application")
-    flat["ats_provider"] = job.get("ats_provider")
-    flat["detection_reason"] = job.get("detection_reason")
-    flat["created_at"] = job.get("created_at")
+
     
     # Location fields
     location = job.get("location") or {}
@@ -104,13 +96,14 @@ def flatten_job_data(job: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
-def read_all_jobs_from_files(output_dir: str = "job_outputs") -> List[Dict[str, Any]]:
+def read_all_jobs_from_files(output_dir: str = "job_outputs", task_id: str | None = None) -> List[Dict[str, Any]]:
     """
-    Read all job records from all JSON files in the output directory.
-    
+    Read all job records from JSON files in the output directory.
+
     Args:
         output_dir: Directory containing job JSON files
-        
+        task_id: Optional task identifier to filter files
+
     Returns:
         List of all job records
     """
@@ -120,7 +113,13 @@ def read_all_jobs_from_files(output_dir: str = "job_outputs") -> List[Dict[str, 
         raise HTTPException(status_code=404, detail=f"Output directory '{output_dir}' not found")
     
     all_jobs = []
-    json_files = sorted(output_path.glob("jobs_*.json"))
+    # ✅ Filter files by task_id if provided
+    if task_id:
+        json_files = sorted(
+            output_path.glob(f"jobs_{task_id}*.json")
+        )
+    else:
+        json_files = sorted(output_path.glob("jobs_*.json"))
     
     if not json_files:
         raise HTTPException(status_code=404, detail="No job files found")

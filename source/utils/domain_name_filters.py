@@ -5,6 +5,8 @@ from playwright.async_api import  Page
 from service.brower_scraper_service import DOMContentExtractor
 
 from utils.logging import setup_logger
+import tldextract
+
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -23,7 +25,7 @@ class URLFilter:
         "hiring", "recruit", "recruitment",
         "position", "positions", "opening", "openings",
         "join", "apply", "application", "talent",
-        "team", "work", "working", "people", "peoples",
+        "team", "work", "working", "people", "peoples", "about"
     })
 
     SKIP_EXTENSIONS = frozenset({
@@ -91,6 +93,7 @@ class URLFilter:
             extra={"input_count": len(urls), "domain": domain},
         )
         domain = domain.replace("www.", "").lower()
+        domain = domain.replace('/', '')
         filtered = []
 
         for url in urls:
@@ -190,7 +193,7 @@ class FallbackURLDiscovery:
         domain: str,
         try_common_paths: bool = False,
         extract_from_homepage: bool = True,
-    ) -> list[str]:
+    ) -> dict:
         """
         Fallback: Navigate to domain and discover job URLs.
         
@@ -220,7 +223,8 @@ class FallbackURLDiscovery:
         # Step 1: Try homepage and extract all links
         if extract_from_homepage:
             logger.debug("Extracting URLs from homepage")
-            homepage_urls = await self._extract_urls_from_page(base_url)
+            response_value = await self._extract_urls_from_page(base_url)
+            homepage_urls = response_value.get("result", [])
             discovered_urls.update(homepage_urls)
             logger.debug(
                 "Homepage URLs extracted",
@@ -228,53 +232,54 @@ class FallbackURLDiscovery:
             )
 
         # Step 2: Try common job paths
-        if try_common_paths:
-            logger.debug(
-                "Trying common job paths",
-                extra={"paths_count": len(URLFilter.COMMON_JOB_PATHS)},
-            )
-            for path in URLFilter.COMMON_JOB_PATHS:
-                try:
-                    test_url = f"{base_url}{path}"
-                    logger.debug(
-                        "Testing common job path",
-                        extra={"test_url": test_url, "path": path},
-                    )
+        # if try_common_paths:
+        #     logger.debug(
+        #         "Trying common job paths",
+        #         extra={"paths_count": len(URLFilter.COMMON_JOB_PATHS)},
+        #     )
+        #     for path in URLFilter.COMMON_JOB_PATHS:
+        #         try:
+        #             test_url = f"{base_url}{path}"
+        #             logger.debug(
+        #                 "Testing common job path",
+        #                 extra={"test_url": test_url, "path": path},
+        #             )
                     
-                    response = await self._page.goto(test_url, wait_until="domcontentloaded", timeout=10000)
+        #             response = await self._page.goto(test_url, wait_until="domcontentloaded", timeout=10000)
                     
-                    # Check if page exists (not 404)
-                    if response and response.status < 400:
-                        # Extract URLs from this page
-                        page_urls = await self._extract_urls_from_current_page()
-                        discovered_urls.update(page_urls)
+        #             # Check if page exists (not 404)
+        #             if response and response.status < 400:
+        #                 # Extract URLs from this page
+        #                 response_value = await self._extract_urls_from_current_page()
+        #                 page_urls = response_value.get("result", [])
+        #                 discovered_urls.update(page_urls)
                         
-                        # Also add the successful path itself
-                        discovered_urls.add(test_url)
+        #                 # Also add the successful path itself
+        #                 discovered_urls.add(test_url)
                         
-                        logger.info(
-                            "Found valid job page",
-                            extra={
-                                "test_url": test_url,
-                                "status": response.status,
-                                "urls_found": len(page_urls),
-                            },
-                        )
+        #                 logger.info(
+        #                     "Found valid job page",
+        #                     extra={
+        #                         "test_url": test_url,
+        #                         "status": response.status,
+        #                         "urls_found": len(page_urls),
+        #                     },
+        #                 )
                         
-                        # If we found a valid careers page, we might not need to try all paths
-                        if len(page_urls) > 5:
-                            logger.debug(
-                                "Sufficient URLs found, stopping path search",
-                                extra={"urls_count": len(page_urls)},
-                            )
-                            break
+        #                 # If we found a valid careers page, we might not need to try all paths
+        #                 if len(page_urls) > 5:
+        #                     logger.debug(
+        #                         "Sufficient URLs found, stopping path search",
+        #                         extra={"urls_count": len(page_urls)},
+        #                     )
+        #                     break
                             
-                except Exception as e:
-                    logger.debug(
-                        "Failed to test job path",
-                        extra={"test_url": test_url, "error": str(e)},
-                    )
-                    continue
+        #         except Exception as e:
+        #             logger.debug(
+        #                 "Failed to test job path",
+        #                 extra={"test_url": test_url, "error": str(e)},
+        #             )
+        #             continue
 
         # Filter discovered URLs
         all_urls = list(discovered_urls)
@@ -297,31 +302,96 @@ class FallbackURLDiscovery:
                 "job_filtered": len(job_filtered),
             },
         )
+        response_value["result"] = job_filtered
+        response_value["domain"] = domain
+        return response_value
 
-        return job_filtered
+    # async def _extract_urls_from_page(self, url: str) -> list[str] | dict:
+    #     """Navigate to URL and extract all links."""
+    #     logger.debug(
+    #         "Extracting URLs from page",
+    #         extra={"url": url},
+    #     )
+    
+    #     try:
+    #         await self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+    #         page_url = self._page.url
+            
+            
+    #     except Exception as e:
+    #         logger.warning(
+    #             "Failed to load page for URL extraction",
+    #             extra={"url": url, "error": str(e)},
+    #         )
+    #         return {
+    #             "error": str(e),
+    #             "url": url,
+    #             "message": "Failed to load page for URL extraction"
+    #         }
+        
+    #     urls = await self._extract_urls_from_current_page()
+    #     logger.debug(
+    #         "URLs extracted from page",
+    #         extra={"url": url, "urls_count": len(urls)},
+    #     )
+    #     return urls
+    
+    
+    
+    def normalize_domain(self, url: str) -> str:
+        ext = tldextract.extract(url)
+        return f"{ext.domain}.{ext.suffix}".lower()
+    
+    async def _extract_urls_from_page(self, url: str) -> dict:
+        logger.debug("Extracting URLs from page", extra={"url": url})
 
-    async def _extract_urls_from_page(self, url: str) -> list[str]:
-        """Navigate to URL and extract all links."""
-        logger.debug(
-            "Extracting URLs from page",
-            extra={"url": url},
-        )
         try:
-            await self._page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            urls = await self._extract_urls_from_current_page()
+            await self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            original_domain = self.normalize_domain(urlparse(url).netloc.lower())
+            final_url = self._page.url
+            final_domain = self.normalize_domain(urlparse(final_url).netloc.lower())
+
+            redirected = original_domain != final_domain
+    
             logger.debug(
-                "URLs extracted from page",
-                extra={"url": url, "urls_count": len(urls)},
+                "Page loaded",
+                extra={
+                    "original_url": url,
+                    "final_url": final_url,
+                    "redirected": redirected,
+                },
             )
-            return urls
+
         except Exception as e:
             logger.warning(
                 "Failed to load page for URL extraction",
                 extra={"url": url, "error": str(e)},
             )
-            return []
+            return {
+                "error": str(e),
+                "url": url,
+                "message": "Failed to load page for URL extraction",
+                "success": False
+            }
 
-    async def _extract_urls_from_current_page(self) -> list[str]:
+        response = await self._extract_urls_from_current_page()
+        
+        if not response.get("success"):
+            return response
+   
+        return {
+            "result": response.get('result', []),
+            "redirected": redirected,
+            "original_url": url,
+            "final_url": final_url,
+            "original_domain": original_domain,
+            "final_domain": final_domain,
+            "success": True
+        }
+
+
+    async def _extract_urls_from_current_page(self) ->  dict:
         """Extract all URLs from current page."""
         logger.debug("Extracting URLs from current page")
         try:
@@ -341,14 +411,22 @@ class FallbackURLDiscovery:
                 """
             )
             result = urls or []
+            
             logger.debug(
                 "URLs extracted from current page",
                 extra={"urls_count": len(result)},
             )
-            return result
+            return {
+                "result": result,
+                "success": True
+            }
         except Exception as e:
             logger.warning(
                 "Failed to extract URLs from current page",
                 extra={"error": str(e)},
             )
-            return []
+            return {
+                "message": "Failed to extract URLs from current page",
+                "error": str(e),
+                "success": False
+            }

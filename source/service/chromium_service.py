@@ -32,7 +32,6 @@ class ChromeConfig:
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
 
         # Linux
-        "/home/azureuser/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome",
         "/usr/bin/google-chrome",
         "/usr/bin/chromium-browser",
 
@@ -48,10 +47,6 @@ class ChromeConfig:
         "--no-default-browser-check",
         "--disable-extensions",
         "--headless=new",
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-software-rasterizer",
     ])
 
 
@@ -160,9 +155,27 @@ class ChromeCDPManager:
             },
         )
         return False
+    
+    
+    async def is_cdp_port_active(self) -> bool:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{self.cdp_url}/json/version", timeout=1):
+                    return True
+        except Exception:
+            return False
 
-    async def start_chrome(self) -> asyncio.subprocess.Process:
+
+    async def start_chrome(self) -> asyncio.subprocess.Process | None:
         logger.info("Starting Chrome with CDP")
+        # 🔁 Reuse existing CDP session
+        # if await self.is_cdp_port_active():
+        #     logger.info(
+        #         "CDP already active, reusing existing Chrome session",
+        #         extra={"cdp_url": self.cdp_url},
+        #     )
+        #     self._owns_chrome = False
+        #     return None
         if self._process is not None:
             logger.error("Attempted to start Chrome when already running")
             raise RuntimeError("Chrome is already running.")

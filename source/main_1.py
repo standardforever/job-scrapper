@@ -5,7 +5,7 @@
 
 from service.search_engine_service import WebSearcher, SearchEngine
 from service.brower_scraper_service import DOMContentExtractor, ExtractionConfig
-from service.chromium_service import ChromeCDPManager
+from service.chromium_service import ChromeCDPManager, ChromeConfig
 from service.job_analyzer import JobPageAnalyzer, AnalysisPromptType
 from service.agent_service import JobScraperConfig, URLTracker, TrackedJobScraper, JobEntry
 from utils.domain_name_filters import URLFilter, FallbackURLDiscovery
@@ -23,7 +23,7 @@ logger = setup_logger(__name__)
 
 
 
-async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
+async def main_scrapper(domain: str, llm_model: str = "gpt-5-nano", agent_id: int = 0) -> Dict[str, Any]:
     logger.info(
         "Starting main scraper",
         extra={"domain": domain},
@@ -31,7 +31,7 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
 
     config = JobScraperConfig(
         openai_api_key=settings.OPENAI_API_KEY,
-        llm_model="gpt-5-nano",
+        llm_model=llm_model,
     )
     logger.debug(
         "JobScraperConfig initialized",
@@ -63,7 +63,10 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
         },
     )
 
-    async with ChromeCDPManager() as manager:
+    chrome_config =ChromeConfig(
+        port= 9222 + agent_id
+    )
+    async with ChromeCDPManager(config=chrome_config) as manager:
         logger.debug("ChromeCDPManager context entered")
         page = manager.page
         
@@ -75,251 +78,285 @@ async def main_scrapper(domain: str) -> List[Dict[str, Any]]:
         llm = ChatOpenAI(model=config.llm_model)
         tracker = URLTracker()
         fallback_discovery = FallbackURLDiscovery(page, extractor)
-        logger.debug("All services initialized")
-
-        browser = BrowserSession(cdp_url=manager.cdp_url, keep_alive=True)
-        await browser.start()
+        
+        browser = BrowserSession(keep_alive=True)
+        await browser.connect(manager.cdp_url)
+       
         logger.debug(
             "BrowserSession started",
             extra={"cdp_url": manager.cdp_url},
         )
-
-        try:
-            logger.info(
-                "Starting search and filter phase",
-                extra={"domain": domain},
-            )
-
-            search_query = f"{domain} jobs"
-            logger.debug(
-                "Executing web search",
-                extra={"query": search_query, "engine": "DUCKDUCKGO"},
-            )
-            search_result = await searcher.search(search_query, SearchEngine.DUCKDUCKGO)
-
-            job_filtered = []
-            if search_result.success:
-                logger.info(
-                    "Search completed successfully",
-                    extra={"urls_found": len(search_result.urls)},
-                )
-                domain_filtered = URLFilter.filter_by_domain(search_result.urls, domain)
-                logger.debug(
-                    "Domain filtering completed",
-                    extra={"domain_filtered_count": len(domain_filtered)},
-                )
-                web_page_fitered = URLFilter.filter_web_pages_only(domain_filtered)
-                logger.debug(
-                    "Web page filtering completed",
-                    extra={"web_page_filtered_count": len(web_page_fitered)},
-                )
-
-                job_filtered = URLFilter.filter_job_urls(web_page_fitered)
-                logger.info(
-                    "Job URL filtering completed",
-                    extra={"job_filtered_count": len(job_filtered)},
-                )
-            else:
-                logger.warning(
-                    "Search failed",
-                    extra={"error": search_result.error},
-                )
-
-            # === FALLBACK: Direct domain exploration ===
-            # if not job_filtered:
-            logger.warning(
-                "No job URLs from search, trying fallback discovery",
-                extra={"domain": domain},
-            )
-            fallback_urls = await fallback_discovery.discover_job_urls_from_domain(
+        
+        logger.debug("All services initialized")
+        
+        fallback_urls = await fallback_discovery.discover_job_urls_from_domain(
                 domain=domain,
                 try_common_paths=False,
                 extract_from_homepage=True,
             )
+        
+        if not fallback_urls.get("success") or fallback_urls.get("redirected"):
+            await browser.stop()
+            fallback_urls["message"] = "Domain name redirected to a different domain or fail to access the page"
+            return fallback_urls
+    
+        logger.info(
+            "Starting search and filter phase",
+            extra={"domain": domain},
+        )
+
+        search_query = f"{domain} jobs"
+        logger.debug(
+            "Executing web search",
+            extra={"query": search_query, "engine": "DUCKDUCKGO"},
+        )
+        search_result = await searcher.search(search_query, SearchEngine.DUCKDUCKGO)
+     
+        job_filtered = []
+        if search_result.success:
             logger.info(
-                "Fallback discovery completed",
-                extra={"urls_discovered": len(job_filtered)},
+                "Search completed successfully",
+                extra={"urls_found": len(search_result.urls)},
+            )
+            domain_filtered = URLFilter.filter_by_domain(search_result.urls, domain)
+            logger.debug(
+                "Domain filtering completed",
+                extra={"domain_filtered_count": len(domain_filtered)},
+            )
+            web_page_fitered = URLFilter.filter_web_pages_only(domain_filtered)
+            logger.debug(
+                "Web page filtering completed",
+                extra={"web_page_filtered_count": len(web_page_fitered)},
             )
 
-            job_filtered = list(set(job_filtered + fallback_urls))
-
-            if not job_filtered:
-                logger.error(
-                    "No job URLs found even with fallback",
-                    extra={"domain": domain},
-                )
-                return []
+            job_filtered = URLFilter.filter_job_urls(web_page_fitered)
+            logger.info(
+                "Job URL filtering completed",
+                extra={"job_filtered_count": len(job_filtered)},
+            )
+        else:
+            logger.warning(
+                "Search failed",
+                extra={"error": search_result.error},
+            )
+        job_filtered = list(set(job_filtered + fallback_urls.get("result", [])))
+        
+        if not job_filtered:
+            logger.error(
+                "No job URLs found even with fallback",
+                extra={"domain": domain},
+            )
+            await browser.stop()
+            return {
+                "domain": domain,
+                "job_search": search_result.success,
+                "job_urls_from_domain": fallback_urls.get("success"),
+                "job_found": None,
+                "success": False,
+                "message": "Was not able to find job/career page"
+            }
             
-            logger.info(
-                "Starting job scraping phase",
-                extra={"urls_to_process": len(job_filtered)},
-            )
-            scraper = TrackedJobScraper(
-                browser=browser,
-                llm=llm,
-                extractor=extractor,
-                analyzer=analyzer,
-                tracker=tracker,
-                config=config,
-            )
+        logger.info(
+            "Starting job scraping phase",
+            extra={"urls_to_process": len(job_filtered)},
+        )
+        scraper = TrackedJobScraper(
+            browser=browser,
+            llm=llm,
+            extractor=extractor,
+            analyzer=analyzer,
+            tracker=tracker,
+            config=config,
+        )
 
-            all_scraped_jobs: list[JobEntry] = []
-            jobs_saved = 0
-            jobs_updated = 0
+        all_scraped_jobs: list[JobEntry] = []
+        # jobs_saved = 0
+        # jobs_updated = 0
 
-            for url in job_filtered:
-                url = tracker.normalize_full_path(url, domain)
+            
+        for url in job_filtered:
+            url = tracker.normalize_full_path(url, domain)
 
-                if tracker.should_skip(url):
-                    logger.debug(
-                        "Skipping already processed URL",
-                        extra={"url": url},
-                    )
-                    continue
-
+            if tracker.should_skip(url):
                 logger.debug(
-                    "Scraping jobs from URL",
+                    "Skipping already processed URL",
                     extra={"url": url},
                 )
+                continue
+
+            logger.debug(
+                "Scraping jobs from URL",
+                extra={"url": url},
+            )
+            try:
                 result = await scraper.scrape_jobs(url)
-    
-                logger.info(
-                    "Jobs found from URL",
-                    extra={"url": url, "jobs_count": len(result.jobs)},
-                )
-
-                all_scraped_jobs.extend(result.jobs)
-
-                remaining = tracker.filter_unvisited(job_filtered)
-                logger.debug(
-                    "Remaining URLs to process",
-                    extra={"remaining_count": len(remaining)},
-                )
-
+            except:
+                # NOTE: handle this error properly
+                continue
+            
+            remaining = tracker.filter_unvisited(job_filtered)
+            logger.debug(
+                "Remaining URLs to process",
+                extra={"remaining_count": len(remaining)},
+            )
+            
+            
             logger.info(
-                "Scraping stats",
-                extra={"total_jobs_found": len(all_scraped_jobs)},
+                "Jobs found from URL",
+                extra={"url": url, "jobs_count": len(result.jobs)},
             )
+            detail_job = await scraper.scrape_job_details(domain=domain, jobs=result.jobs, filter_url=url)
+            all_scraped_jobs.extend(detail_job)
 
-            # Scrape job details and save to database
-            all_detail_jobs = []
-            if all_scraped_jobs:
-                logger.info(
-                    "Starting job details scraping and database saving",
-                    extra={"jobs_to_process": len(all_scraped_jobs)},
-                )
+        await browser.stop()
+        return {
+            "domain": domain,
+            "job_urls_checked": job_filtered,
+            "job_found": all_scraped_jobs,
+            "success": True,
+            "message": "not able to find job" if len(all_scraped_jobs) == 0 else "Job found"
+        }
 
-                for i, job in enumerate(all_scraped_jobs):
-                    if not job.url:
-                        logger.debug(
-                            "Skipping job without URL",
-                            extra={"job_index": i, "job_title": job.title},
-                        )
-                        continue
-
-                    logger.debug(
-                        "Processing job",
-                        extra={
-                            "job_index": i + 1,
-                            "total_jobs": len(all_scraped_jobs),
-                            "job_title": job.title,
-                            "job_url": job.url,
-                        },
-                    )
-
-                    try:
-                        page = await browser.get_current_page()
-                        
-                        filter_domain = tracker.extract_domain(url)
-                        job.url = tracker.normalize_full_path(job.url, filter_domain)
-                        await page.goto(job.url)
-                        await asyncio.sleep(config.page_load_wait)
-                        tracker.mark_visited(job.url)
-                        logger.debug(
-                            "Navigated to job page",
-                            extra={"job_url": job.url},
-                        )
-                        
-                        text_extracted = await extractor.extract()
-                        analysis = await analyzer.analyze(
-                            job.url,
-                            text_extracted.structured_text,
-                            prompt_type=AnalysisPromptType.STRUCTURED,
-                            main_domain=domain
-                        )
-                        if analysis.success:
-                            job.details = analysis.response
-                            logger.debug(
-                                "Job details analysis successful",
-                                extra={"job_url": job.url},
-                            )
-                        else:
-                            logger.warning(
-                                "Job details analysis failed",
-                                extra={"job_url": job.url, "error": analysis.error},
-                            )
-                    except Exception as e:
-                        logger.error(
-                            "Error scraping job details",
-                            extra={"job_url": job.url, "error": str(e)},
-                            exc_info=True,
-                        )
-
-                    # Detect ATS and create document
-                    ats_info = ATSDetector.detect_ats(job.url, domain)
-                    logger.debug(
-                        "ATS detection completed",
-                        extra={
-                            "job_url": job.url,
-                            "is_ats": ats_info["is_ats"],
-                            "ats_provider": ats_info["ats_provider"],
-                        },
-                    )
-
-                    job_doc = job.details or {}
-                    if not job_doc:
-                        logger.debug("No job_doc details found",
-                                     extra={"url": job.url})
-                        continue
-
-                    job_doc['main_domain'] = domain
-                    job_doc["raw_text"] = text_extracted.structured_text
-                    job_doc['filter_domain'] = url
-                    job_doc["url"] = job.url
-                    job_doc["is_known_ats"] = ats_info["is_known_ats"]
-                    job_doc['is_ats'] = ats_info["is_ats"]
-                    job_doc['is_external_application'] = ats_info["is_external_application"]
-                    job_doc['ats_provider'] = ats_info["ats_provider"]
-                    job_doc['detection_reason'] = ats_info["detection_reason"]
+    #     logger.info(
+    #         "Scraping stats",
+    #         extra={"total_jobs_found": len(all_scraped_jobs)},
+    #     )
         
-                    all_detail_jobs.append(job_doc)
-                    logger.debug(
-                        "Job document created",
-                        extra={"job_url": job.url},
-                    )
+    #     if not all_scraped_jobs:
+    #         await browser.stop()
+    #         return {
+    #             "domain": domain,
+    #             "job_urls_checked": job_filtered,
+    #             "job_found": None  
+    #         }
+        
+    #     all_detail_jobs = await scraper.scrape_job_details(domain=domain, jobs=all_scraped_jobs, filter_domain=)
+    #     # Scrape job details and save to database
+    #     all_detail_jobs = []
+    #     # if all_scraped_jobs:
+    #     logger.info(
+    #         "Starting job details scraping and database saving",
+    #         extra={"jobs_to_process": len(all_scraped_jobs)},
+    #     )
 
-                logger.info(
-                    "Job details scraping completed",
-                    extra={
-                        "total_detail_jobs": len(all_detail_jobs),
-                        "jobs_saved": jobs_saved,
-                        "jobs_updated": jobs_updated,
-                    },
-                )
+    #     for i, job in enumerate(all_scraped_jobs):
+    #         if not job.url:
+    #             logger.debug(
+    #                 "Skipping job without URL",
+    #                 extra={"job_index": i, "job_title": job.title},
+    #             )
+    #             continue
 
-                return all_detail_jobs
-            return all_detail_jobs
+    #         logger.debug(
+    #             "Processing job",
+    #             extra={
+    #                 "job_index": i + 1,
+    #                 "total_jobs": len(all_scraped_jobs),
+    #                 "job_title": job.title,
+    #                 "job_url": job.url,
+    #             },
+    #         )
 
-        except Exception as e:
-            logger.error(
-                "Error in main scraper",
-                extra={"domain": domain, "error": str(e)},
-                exc_info=True,
-            )
-            return all_detail_jobs
-        finally:
-            logger.debug("Main scraper execution finished")
-            await browser.stop()
+    #         try:
+    #             page = await browser.get_current_page()
+    #             page_url = await page.get_url()
+    #             # from urllib.parse import urlparse, urlunparse
+    #             # page_url = urlparse(page_url).netloc
+    #             # print(page_url)
+                
+    #             filter_domain = tracker.extract_domain(page_url)
+                
+    #             job.url = tracker.normalize_full_path(job.url, filter_domain)
+    #             await page.goto(job.url)
+    #             await asyncio.sleep(config.page_load_wait)
+    #             tracker.mark_visited(job.url)
+    #             logger.debug(
+    #                 "Navigated to job page",
+    #                 extra={"job_url": job.url},
+    #             )
+                
+    #             text_extracted = await extractor.extract()
+    #             analysis = await analyzer.analyze(
+    #                 job.url,
+    #                 text_extracted.structured_text,
+    #                 prompt_type=AnalysisPromptType.STRUCTURED,
+    #                 main_domain=domain
+    #             )
+    #             if analysis.success:
+    #                 job.details = analysis.response
+    #                 logger.debug(
+    #                     "Job details analysis successful",
+    #                     extra={"job_url": job.url},
+    #                 )
+    #             else:
+    #                 logger.warning(
+    #                     "Job details analysis failed",
+    #                     extra={"job_url": job.url, "error": analysis.error},
+    #                 )
+    #         except Exception as e:
+    #             logger.error(
+    #                 "Error scraping job details",
+    #                 extra={"job_url": job.url, "error": str(e)},
+    #                 exc_info=True,
+    #             )
+
+    #         # Detect ATS and create document
+    #         ats_info = ATSDetector.detect_ats(job.url, domain)
+    #         logger.debug(
+    #             "ATS detection completed",
+    #             extra={
+    #                 "job_url": job.url,
+    #                 "is_ats": ats_info["is_ats"],
+    #                 "ats_provider": ats_info["ats_provider"],
+    #             },
+    #         )
+
+    #         job_doc = job.details or {}
+    #         if not job_doc:
+    #             logger.debug("No job_doc details found",
+    #                             extra={"url": job.url})
+    #             continue
+
+    #         job_doc['main_domain'] = domain
+    #         job_doc["raw_text"] = text_extracted.structured_text
+    #         job_doc['filter_domain'] = url
+    #         job_doc["url"] = job.url
+    #         job_doc["is_known_ats"] = ats_info["is_known_ats"]
+    #         job_doc['is_ats'] = ats_info["is_ats"]
+    #         job_doc['is_external_application'] = ats_info["is_external_application"]
+    #         job_doc['ats_provider'] = ats_info["ats_provider"]
+    #         job_doc['detection_reason'] = ats_info["detection_reason"]
+
+    #         all_detail_jobs.append(job_doc)
+    #         logger.debug(
+    #             "Job document created",
+    #             extra={"job_url": job.url},
+    #         )
+
+    #     logger.info(
+    #         "Job details scraping completed",
+    #         extra={
+    #             "total_detail_jobs": len(all_detail_jobs),
+    #             "jobs_saved": jobs_saved,
+    #             "jobs_updated": jobs_updated,
+    #         },
+    #     )
+        
+    #     return {
+    #         "job_found": all_detail_jobs
+    #     }
+    # return all_detail_jobs
+
+    # except Exception as e:
+    #     logger.error(
+    #         "Error in main scraper",
+    #         extra={"domain": domain, "error": str(e)},
+    #         exc_info=True,
+    #     )
+    #     return all_detail_jobs
+    # finally:
+    #     logger.debug("Main scraper execution finished")
+    #     await browser.stop()
 
 
 async def process_single_url(url: str, file_manager: JobFileManager) -> dict:
@@ -414,7 +451,10 @@ if __name__ == "__main__":
     
     # List of URLs/domains to process
     urls_to_process = [
-        "aceandtate.com",
+        # "aceandtate.com",
+        # https://treehousenurseries.com/careers/
+        "treehousenurseries.com"
+        # "www.trireme.com"
         # "mynewterm.com",
         # "aish.org.uk",
         # Add more URLs here...
