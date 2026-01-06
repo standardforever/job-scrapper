@@ -243,9 +243,7 @@ async def process_urls_with_agent(
                 return
             
             # Save jobs
-            for job_doc in all_scraped_jobs:
-                job_doc.details["task_id"] = task_id
-                
+            for job_doc in all_scraped_jobs:   
                 save_info = file_manager.add_job(job_doc.details)
                 result["status"] = "success"
                 result["save_info"] = save_info

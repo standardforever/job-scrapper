@@ -453,7 +453,7 @@ class TrackedJobScraper:
                 return ScrapeResult(jobs=all_jobs, visited_urls=self._current_visited, job_detail_urls=[j.url for j in all_jobs if j.url], error=str(analysis.error), message="Ai analysis failed", success=False)
 
             result = analysis.response
-            page_category = result.get("page_category", "")
+            page_category = result.get("page_category", "not_job_related")
             logger.debug(
                 "Analysis result",
                 extra={
