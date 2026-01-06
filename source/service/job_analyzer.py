@@ -120,7 +120,7 @@ class JobPageAnalyzer:
 
                 logger.info(
                     "Page analysis completed successfully",
-                    extra={"url": url, "attempt": i + 1, "llm_reasoning": output.get("confidence_reason")},
+                    extra={"url": url, "attempt": i + 1, "llm_reasoning": output.get("confidence_reason"), "page_category": output.get('page_category')},
                 )
                 return AnalysisResult(
                     response=output,
